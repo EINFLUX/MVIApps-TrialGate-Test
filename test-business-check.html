@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MVIApps TEST — Business Status Check</title>
+<style>
+:root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#182230;background:#f4f7ff}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px}.card{width:min(560px,100%);background:#fff;border:1px solid #dce4f0;border-radius:18px;box-shadow:0 14px 40px #19334d12;padding:26px}.brand{text-align:center;font-size:24px;font-weight:850;color:#24449c}.sub{text-align:center;color:#697586;font-size:13px;line-height:1.5;margin:7px 0 22px}h1{font-size:21px;text-align:center;margin:0 0 8px}.field{margin:13px 0}label{display:block;font-size:12px;font-weight:750;margin-bottom:6px}input{width:100%;height:43px;border:1px solid #cbd5e1;border-radius:9px;padding:10px 12px;font:inherit}button{border:0;border-radius:9px;padding:12px 14px;background:#315efb;color:#fff;font-weight:800;font-size:14px;cursor:pointer}button.secondary{background:#f8fafc;color:#334155;border:1px solid #dce4f0}button:disabled{opacity:.55;cursor:wait}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.actions button{flex:1;min-width:140px}.status{display:none;border-radius:10px;padding:12px 13px;margin-top:15px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}.status.info{display:block;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8}.status.success{display:block;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}.status.error{display:block;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239}.panel{border:1px solid #cbd5e1;border-radius:11px;padding:13px;margin-top:14px;font-size:13px;line-height:1.7;overflow-wrap:anywhere}.muted{color:#697586;font-size:12px}.footer{text-align:center;color:#697586;font-size:12px;margin-top:20px}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="brand">MVIApps</div>
+  <div class="sub">Separate TEST-only page · Does not create or modify a Business</div>
+  <h1>Business Status Check</h1>
+  <p class="sub">Sign in with your verified TEST Firebase account, then check whether a Business already exists. This page only sends a GET request to the TEST Worker.</p>
+  <div id="signedIn" class="panel" style="display:none"></div>
+  <form id="loginForm">
+    <div class="field"><label for="email">TEST account email</label><input id="email" type="email" autocomplete="username" placeholder="you@example.com" required></div>
+    <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="TEST account password" required></div>
+    <button type="submit" id="signInBtn" style="width:100%">Sign in to TEST account</button>
+  </form>
+  <div class="actions">
+    <button type="button" class="secondary" id="checkBtn" disabled>Check Business Status</button>
+    <button type="button" class="secondary" id="signOutBtn" style="display:none">Sign out</button>
+  </div>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <div id="result" class="panel" style="display:none"></div>
+  <div class="panel"><strong>Safety notes</strong><br>• TEST Firebase project: <code>mviapps-test-auth</code><br>• TEST Worker only: <code>mviapps-trial-test-api</code><br>• This page does not create a Business, change Trial dates, or edit customer records.<br>• Do not enter Production account credentials here.</div>
+  <div class="footer">MVIApps TEST Business Status · Separate from the live application</div>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+const firebaseConfig = {
+  apiKey: "AIzaSyDYf6iSPn_FLpvJFOHsNvfiBzvkU057Q8PA",
+  authDomain: "mviapps-test-auth.firebaseapp.com",
+  projectId: "mviapps-test-auth",
+  storageBucket: "mviapps-test-auth.firebasestorage.app",
+  messagingSenderId: "490578513154",
+  appId: "1:490578513154:web:2eb4b08d71dadeacf061b"
+};
+const BUSINESS_STATUS_URL = "https://mviapps-trial-test-api.miv2k21.workers.dev/business";
+const app = initializeApp(firebaseConfig, "mviappsBusinessStatusTest");
+const auth = getAuth(app);
+const form = document.getElementById("loginForm");
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
+const signInBtn = document.getElementById("signInBtn");
+const checkBtn = document.getElementById("checkBtn");
+const signOutBtn = document.getElementById("signOutBtn");
+const signedIn = document.getElementById("signedIn");
+const statusBox = document.getElementById("status");
+const resultBox = document.getElementById("result");
+function status(message, type="info") { statusBox.className = `status ${type}`; statusBox.textContent = message; }
+function friendlyError(e) {
+  const code = e?.code || "";
+  if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) return "Sign-in failed. Check the TEST account email and password.";
+  if (code.includes("too-many-requests")) return "Firebase temporarily blocked repeated sign-in attempts. Wait a while and try again.";
+  return `${e?.message || "Request failed"}${code ? ` (${code})` : ""}`;
+}
+onAuthStateChanged(auth, user => {
+  const verified = !!user && user.emailVerified === true;
+  signedIn.style.display = user ? "block" : "none";
+  signedIn.textContent = user ? `Signed-in TEST account: ${user.email || "(email unavailable)"} · Email verified: ${user.emailVerified ? "Yes" : "No"}` : "";
+  form.style.display = user ? "none" : "block";
+  checkBtn.disabled = !verified;
+  signOutBtn.style.display = user ? "inline-block" : "none";
+  if (user && !verified) status("This TEST account's email is not verified. Verify it before checking Business status.", "error");
+  else if (verified && !statusBox.textContent) status("TEST account ready. Click Check Business Status to make a read-only request.", "info");
+});
+form.addEventListener("submit", async e => {
+  e.preventDefault(); signInBtn.disabled = true; signInBtn.textContent = "Signing in…";
+  try {
+    const credential = await signInWithEmailAndPassword(auth, emailInput.value.trim(), passwordInput.value);
+    if (!credential.user.emailVerified) status("Signed in, but email is not verified. Verify this TEST email before proceeding.", "error");
+    else status("TEST Firebase sign-in successful. You can now check Business status.", "success");
+  } catch (e) { status(friendlyError(e), "error"); }
+  finally { signInBtn.disabled = false; signInBtn.textContent = "Sign in to TEST account"; }
+});
+checkBtn.addEventListener("click", async () => {
+  const user = auth.currentUser;
+  if (!user || !user.emailVerified) { status("Sign in with a verified TEST Firebase account first.", "error"); return; }
+  checkBtn.disabled = true; checkBtn.textContent = "Checking…"; resultBox.style.display = "none";
+  try {
+    const token = await user.getIdToken(true);
+    const response = await fetch(BUSINESS_STATUS_URL, { method: "GET", headers: { "Authorization": `Bearer ${token}` } });
+    const data = await response.json().catch(() => ({}));
+    resultBox.style.display = "block";
+    resultBox.textContent = `HTTP status: ${response.status}\n` + JSON.stringify(data, null, 2);
+    resultBox.style.whiteSpace = "pre-wrap";
+    if (!response.ok) status(`Business status request returned HTTP ${response.status}. Read the response below; no Business was created by this page.`, "error");
+    else if (data.businessStatus === "not_created") status("Read-only check passed: no Business is registered for this account. Nothing was created or changed.", "success");
+    else if (data.businessStatus === "active") status("Read-only check passed: an existing Business was found. Nothing was created or changed.", "success");
+    else status("The Worker responded. Review the returned status below; this page did not create or change a Business.", "info");
+  } catch (e) { status(`Could not reach the TEST Worker: ${e.message}. No Business was created by this page.`, "error"); }
+  finally { checkBtn.disabled = !(auth.currentUser && auth.currentUser.emailVerified); checkBtn.textContent = "Check Business Status"; }
+});
+signOutBtn.addEventListener("click", async () => { await signOut(auth); status("Signed out of this TEST page.", "info"); resultBox.style.display = "none"; });
+</script>
+</body>
+</html>
