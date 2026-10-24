@@ -41,6 +41,7 @@ const firebaseConfig = {
   appId: "1:490578513154:web:2eb4b08d71dadeacf061b"
 };
 const BUSINESS_STATUS_URL = "https://mviapps-trial-test-api.mvi2k21.workers.dev/business";
+const STAFF_MEMBERSHIP_URL = "https://mviapps-trial-test-api.mvi2k21.workers.dev/business/staff-membership";
 const app = initializeApp(firebaseConfig, "mviappsBusinessStatusTest");
 const auth = getAuth(app);
 const form = document.getElementById("loginForm");
@@ -84,16 +85,38 @@ checkBtn.addEventListener("click", async () => {
   checkBtn.disabled = true; checkBtn.textContent = "Checking…"; resultBox.style.display = "none";
   try {
     const token = await user.getIdToken(true);
-    const response = await fetch(BUSINESS_STATUS_URL, { method: "GET", headers: { "Authorization": `Bearer ${token}` } });
+    const endpoint = user.email?.toLowerCase() === "oxkomstores123@gmail.com"
+  ? STAFF_MEMBERSHIP_URL
+  : BUSINESS_STATUS_URL;
+
+const response = await fetch(endpoint, {
+  method: "GET",
+  headers: { "Authorization": `Bearer ${token}` },
+  cache: "no-store"
+});
     const data = await response.json().catch(() => ({}));
     resultBox.style.display = "block";
     resultBox.textContent = `HTTP status: ${response.status}\n` + JSON.stringify(data, null, 2);
     resultBox.style.whiteSpace = "pre-wrap";
-    if (!response.ok) status(`Business status request returned HTTP ${response.status}. Read the response below; no Business was created by this page.`, "error");
-    else if (data.businessStatus === "not_created") status("Read-only check passed: no Business is registered for this account. Nothing was created or changed.", "success");
-    else if (data.businessStatus === "active") status("Read-only check passed: an existing Business was found. Nothing was created or changed.", "success");
-    else status("The Worker responded. Review the returned status below; this page did not create or change a Business.", "info");
-  } catch (e) { status(`Could not reach the TEST Worker: ${e.message}. No Business was created by this page.`, "error"); }
+  if (!response.ok) {
+  status(
+    data.code === "ACTIVE_STAFF_MEMBERSHIP_NOT_FOUND"
+      ? "No active Staff membership was found for this TEST account."
+      : `Request returned HTTP ${response.status}. Read the response below.`,
+    "error"
+  );
+} else if (data.businessStatus === "not_created") {
+  status("Read-only check passed: no Business is registered for this account. Nothing was created or changed.", "success");
+} else if (data.businessStatus === "active" && data.accessGranted === true) {
+  status(
+    data.business?.role === "Staff"
+      ? "Read-only check passed: active Staff membership confirmed."
+      : "Read-only check passed: existing Business found.",
+    "success"
+  );
+} else {
+  status("The Worker responded. Review the returned status below.", "info");
+}  } catch (e) { status(`Could not reach the TEST Worker: ${e.message}. No Business was created by this page.`, "error"); }
   finally { checkBtn.disabled = !(auth.currentUser && auth.currentUser.emailVerified); checkBtn.textContent = "Check Business Status"; }
 });
 signOutBtn.addEventListener("click", async () => { await signOut(auth); status("Signed out of this TEST page.", "info"); resultBox.style.display = "none"; });
