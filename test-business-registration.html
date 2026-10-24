@@ -85,7 +85,10 @@ $("logoutBtn").hidden=!user;
 
 onAuthStateChanged(auth,user=>{
 controls(user);
-if(!user)checkedBusiness=null;
+if (!user) {
+  checkedBusiness = null;
+  window.canCreateFirstBusiness = false;
+}
 });
 
 $("login").addEventListener("submit",async e=>{
@@ -107,12 +110,33 @@ const token=await user.getIdToken(true);
 const r=await fetch(API+"/business",{headers:{Authorization:"Bearer "+token},cache:"no-store"});
 const d=await r.json().catch(()=>({}));
 result("GET /business — HTTP "+r.status+"\n"+JSON.stringify(d,null,2));
-if(r.ok&&d.testOnly===true&&d.businessStatus==="active"&&
-d.business?.name===EXPECTED_NAME&&d.business?.role==="Owner"){
-checkedBusiness={id:d.business.id,name:d.business.name};
-show("Read-only check passed. Expected TEST Business and Owner confirmed. You may run the duplicate-prevention test.");
-}else{
-show("Safety stop: expected existing TEST Business was not confirmed. Do not run POST.");
+if (
+  r.ok &&
+  d.testOnly === true &&
+  d.accessGranted === true &&
+  d.businessStatus === "not_created" &&
+  user.email === "einfluxonline@gmail.com"
+) {
+  window.canCreateFirstBusiness = true;
+  checkedBusiness = null;
+  show("PASS: No Business exists and Trial access is active. Create First TEST Business is enabled.");
+} else if (
+  r.ok &&
+  d.testOnly === true &&
+  d.businessStatus === "active" &&
+  d.business?.name === EXPECTED_NAME &&
+  d.business?.role === "Owner"
+) {
+  window.canCreateFirstBusiness = false;
+  checkedBusiness = {
+    id: d.business.id,
+    name: d.business.name
+  };
+  show("Read-only check passed. Existing TEST Business and Owner confirmed.");
+} else {
+  window.canCreateFirstBusiness = false;
+  checkedBusiness = null;
+  show("Safety stop: expected TEST conditions were not confirmed. Do not run POST.");
 }
 }catch(e){show("GET request failed: "+e.message+". POST remains disabled.");}
 finally{busy=false;controls(auth.currentUser);}
@@ -162,7 +186,10 @@ $("createBtn").addEventListener("click", async () => {
   }
 
   if (busy) return;
-
+if (window.canCreateFirstBusiness !== true) {
+  show("Safety stop: run Check Existing Business first and confirm no Business exists.");
+  return;
+}
   if (!confirm("TEST ONLY: Create the first Business for einfluxonline@gmail.com?\n\nThis will write a Business and Owner membership to the TEST database. Continue?")) {
     return;
   }
