@@ -78,7 +78,7 @@ $("signed").textContent=user
 :"Not signed in.";
 $("login").hidden=!!user;
 $("checkBtn").disabled=!verified||busy;
-$("postBtn").disabled=!verified||busy||!checkedBusiness;
+$("postBtn").disabled = !verified || busy || !checkedBusiness || checkedBusiness.name !== EXPECTED_NAME;
 $("createBtn").disabled = !verified || busy || auth.currentUser?.email !== "einfluxonline@gmail.com" || !window.canCreateFirstBusiness;
 $("logoutBtn").hidden=!user;
 }
