@@ -44,6 +44,7 @@ const BUSINESS_STATUS_URL = "https://mviapps-trial-test-api.mvi2k21.workers.dev/
 const STAFF_MEMBERSHIP_URL = "https://mviapps-trial-test-api.mvi2k21.workers.dev/business/staff-membership";
 const app = initializeApp(firebaseConfig, "mviappsBusinessStatusTest");
 const auth = getAuth(app);
+window.testBusinessAuth = auth;
 const form = document.getElementById("loginForm");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
