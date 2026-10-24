@@ -79,6 +79,7 @@ $("signed").textContent=user
 $("login").hidden=!!user;
 $("checkBtn").disabled=!verified||busy;
 $("postBtn").disabled=!verified||busy||!checkedBusiness;
+$("createBtn").disabled = !verified || busy || auth.currentUser?.email !== "einfluxonline@gmail.com" || !window.canCreateFirstBusiness;
 $("logoutBtn").hidden=!user;
 }
 
