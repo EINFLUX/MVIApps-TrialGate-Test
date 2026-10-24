@@ -78,7 +78,7 @@ $("signed").textContent=user
 :"Not signed in.";
 $("login").hidden=!!user;
 $("checkBtn").disabled=!verified||busy;
-$("postBtn").disabled = !verified || busy || !checkedBusiness || checkedBusiness.name !== EXPECTED_NAME;
+$("postBtn").disabled = !verified || busy || !checkedBusiness || !["MVIApps TEST Business - Oct 2026", "MVIApps TEST Business - Einflux Oct 2026"].includes(checkedBusiness.name);
 $("createBtn").disabled = !verified || busy || auth.currentUser?.email !== "einfluxonline@gmail.com" || !window.canCreateFirstBusiness;
 $("logoutBtn").hidden=!user;
 }
@@ -124,7 +124,7 @@ if (
   r.ok &&
   d.testOnly === true &&
   d.businessStatus === "active" &&
-  d.business?.name === EXPECTED_NAME &&
+  ["MVIApps TEST Business - Oct 2026", "MVIApps TEST Business - Einflux Oct 2026"].includes(d.business?.name) &&
   d.business?.role === "Owner"
 ) {
   window.canCreateFirstBusiness = false;
