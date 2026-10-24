@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MVIApps TEST Staff Invitation</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#182230;background:#f4f7ff;box-sizing:border-box}
+*{box-sizing:border-box}
+body{margin:0;padding:18px}
+main{max-width:680px;margin:20px auto;background:#fff;padding:20px;border:1px solid #dce4f0;border-radius:16px}
+h1{text-align:center;font-size:23px;margin:0 0 12px}
+.sub{color:#64748b;line-height:1.5}
+.panel{padding:12px;border:1px solid #cbd5e1;border-radius:9px;margin:12px 0;line-height:1.5;overflow-wrap:anywhere;white-space:pre-wrap}
+label{display:block;font-weight:bold;margin:14px 0 6px}
+input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px}
+button{padding:11px 13px;margin:8px 6px 0 0;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;cursor:pointer;font-weight:bold}
+button.primary{background:#315efb;color:#fff;border-color:#315efb}
+button:disabled{opacity:.45;cursor:not-allowed}
+.small{font-size:13px;color:#64748b}
+.warning{border-color:#f2c879;background:#fffaf0}
+</style>
+</head>
+<body>
+<main>
+<h1>MVIApps TEST Staff Invitation</h1>
+<p class="sub">TEST-only utility. Uses the TEST Firebase project and TEST Worker only. Does not modify Production or Google Drive Sync.</p>
+<div id="signed" class="panel">Not signed in.</div>
+<form id="login">
+<label for="email">TEST Owner email</label>
+<input id="email" type="email" autocomplete="username" required value="einfluxonline@gmail.com">
+<label for="password">Password</label>
+<input id="password" type="password" autocomplete="current-password" required>
+<button class="primary" id="loginBtn" type="submit">Sign in as TEST Owner</button>
+</form>
+<label for="inviteEmail">Staff email to invite</label>
+<input id="inviteEmail" type="email" required value="oxkomstores123@gmail.com">
+<div>
+<button class="primary" id="checkBtn" type="button" disabled>1. Check Owner Business</button>
+<button id="inviteBtn" type="button" disabled>2. Create TEST Invitation</button>
+<button id="logoutBtn" type="button" hidden>Sign out</button>
+</div>
+<div id="status" class="panel" role="status" aria-live="polite">Sign in with the verified TEST Owner account first.</div>
+<div id="result" class="panel" hidden></div>
+<div class="panel warning"><strong>Safety:</strong> Creating an invitation writes one record to the TEST database and returns a one-time token. The Worker does not send email. Keep the token private and share it only with the intended TEST invitee. Do not use this page for Production.</div>
+<p class="small">TEST Firebase project: mviapps-test-auth<br>TEST Worker: mviapps-trial-test-api.mivi2k21.workers.dev</p>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+
+const API = "https://mviapps-trial-test-api.mivi2k21.workers.dev";
+const EXPECTED_OWNER = "einfluxonline@gmail.com";
+const EXPECTED_BUSINESS = "MVIApps TEST Business - Einflux Oct 2026";
+const firebaseConfig = {
+  apiKey: "AIzaSyDF6iSPn_FLpvJFOHsNvfiBzvKU057Q8PA",
+  authDomain: "mviapps-test-auth.firebaseapp.com",
+  projectId: "mviapps-test-auth",
+  storageBucket: "mviapps-test-auth.firebasestorage.app",
+  messagingSenderId: "490578513154",
+  appId: "1:490578513154:web:2eb4b08d71dadeacf061b"
+};
+const app = initializeApp(firebaseConfig, "mviappsStaffInvitationTest");
+const auth = getAuth(app);
+const $ = id => document.getElementById(id);
+let busy = false;
+let checkedBusiness = null;
+
+function show(message){ $("status").textContent = message; }
+function result(message){ $("result").hidden = false; $("result").textContent = message; }
+function controls(user){
+  const verified = !!user && !!user.emailVerified;
+  $("signed").textContent = user ? `Signed in: ${user.email} | Email verified: ${verified ? "Yes" : "No"}` : "Not signed in.";
+  $("login").hidden = !!user;
+  $("checkBtn").disabled = !verified || busy;
+  $("inviteBtn").disabled = !verified || busy || !checkedBusiness;
+  $("logoutBtn").hidden = !user;
+}
+onAuthStateChanged(auth, user => {
+  if (!user) checkedBusiness = null;
+  controls(user);
+});
+
+$("login").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (busy) return;
+  busy = true; controls(auth.currentUser); show("Signing in to TEST Firebase...");
+  try {
+    const cred = await signInWithEmailAndPassword(auth, $("email").value.trim(), $("password").value);
+    if (cred.user.email !== EXPECTED_OWNER || !cred.user.emailVerified) {
+      await signOut(auth);
+      show("Safety stop: sign in with the verified TEST Owner account only.");
+      return;
+    }
+    show("TEST sign-in successful. Check Owner Business first.");
+  } catch (err) {
+    show("Sign-in failed: " + (err.code || err.message));
+  } finally {
+    busy = false; controls(auth.currentUser);
+  }
+});
+
+$("checkBtn").addEventListener("click", async () => {
+  const user = auth.currentUser;
+  if (!user || !user.emailVerified || user.email !== EXPECTED_OWNER) {
+    show("Safety stop: verified TEST Owner account required."); return;
+  }
+  busy = true; checkedBusiness = null; controls(user); show("Checking existing TEST Business...");
+  try {
+    const token = await user.getIdToken(true);
+    const response = await fetch(API + "/business", {method:"GET", headers:{Authorization:"Bearer " + token}, cache:"no-store"});
+    const data = await response.json().catch(() => ({}));
+    result("GET /business — HTTP " + response.status + "\n" + JSON.stringify(data, null, 2));
+    if (response.ok && data.testOnly === true && data.accessGranted === true &&
+        data.businessStatus === "active" && data.business?.name === EXPECTED_BUSINESS &&
+        data.business?.role === "Owner" && data.business?.id) {
+      checkedBusiness = {id:data.business.id, name:data.business.name};
+      show("PASS: expected TEST Business and Owner confirmed. Invitation creation is enabled.");
+    } else {
+      show("Safety stop: expected TEST Business and Owner were not confirmed. Do not create an invitation.");
+    }
+  } catch (err) {
+    show("GET request failed: " + err.message + ". No invitation was created.");
+  } finally {
+    busy = false; controls(auth.currentUser);
+  }
+});
+
+$("inviteBtn").addEventListener("click", async () => {
+  const user = auth.currentUser;
+  const invitedEmail = $("inviteEmail").value.trim().toLowerCase();
+  if (!user || !user.emailVerified || user.email !== EXPECTED_OWNER || !checkedBusiness) {
+    show("Safety stop: run a successful Owner Business check first."); return;
+  }
+  if (invitedEmail !== "oxkomstores123@gmail.com") {
+    show("Safety stop: this controlled TEST is restricted to oxkomstores123@gmail.com."); return;
+  }
+  if (!confirm("TEST ONLY: Create one Staff invitation for oxkomstores123@gmail.com in MVIApps TEST Business - Einflux Oct 2026? No email will be sent. Continue?")) return;
+  busy = true; controls(user); show("Creating TEST invitation...");
+  try {
+    const token = await user.getIdToken(true);
+    const response = await fetch(API + "/business/invitations", {
+      method:"POST",
+      headers:{Authorization:"Bearer " + token, "Content-Type":"application/json", Accept:"application/json"},
+      body:JSON.stringify({email:invitedEmail}),
+      cache:"no-store"
+    });
+    const data = await response.json().catch(() => ({}));
+    result("POST /business/invitations — HTTP " + response.status + "\n" + JSON.stringify(data, null, 2));
+    if (response.ok && data.testOnly === true && data.invitationStatus === "pending" &&
+        data.role === "Staff" && data.invitedEmail?.toLowerCase() === invitedEmail &&
+        typeof data.invitationToken === "string" && /^[a-f0-9]{64}$/.test(data.invitationToken)) {
+      show("PASS: TEST invitation created. Email was not sent. Keep the token private and use it only in the Staff claim test.");
+    } else {
+      show("Result needs review. Check the HTTP status and response before retrying; do not create another invitation yet.");
+    }
+  } catch (err) {
+    show("Request failed: " + err.message + ". Do not retry until invitation status has been checked.");
+  } finally {
+    busy = false; controls(auth.currentUser);
+  }
+});
+
+$("logoutBtn").addEventListener("click", async () => {
+  await signOut(auth);
+  checkedBusiness = null;
+  $("result").hidden = true;
+  show("Signed out of TEST account.");
+});
+</script>
+</body>
+</html>
