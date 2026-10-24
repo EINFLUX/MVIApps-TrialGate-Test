@@ -72,7 +72,7 @@ const firebaseConfig = {
 const API = "https://mviapps-trial-test-api.mvi2k21.workers.dev";
 const EXPECTED_EMAIL = "oxkomstores123@gmail.com";
 const auth = getAuth(initializeApp(firebaseConfig));
-
+window.testStaffAuth = auth;
 const $ = id => document.getElementById(id);
 let busy = false;
 
