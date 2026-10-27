@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MVIApps TEST Staff Parties/Items Diagnostic</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#182230;background:#f3f6fb}*{box-sizing:border-box}body{margin:0;padding:18px}.wrap{max-width:720px;margin:auto}.card{background:#fff;border:1px solid #d4deef;border-radius:14px;padding:18px;margin:0 0 14px}.sub{color:#64748b;font-size:14px;line-height:1.5}label{display:block;font-weight:700;margin:12px 0 6px}input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font-size:16px}button{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;background:#315efb;color:#fff;font-weight:700;font-size:15px;margin-top:10px;cursor:pointer}button.secondary{background:#fff;color:#24324a}button:disabled{opacity:.6}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.55 Arial,sans-serif;margin:8px 0 0}.status{border-radius:9px;padding:12px;margin-top:12px;line-height:1.5}.ok{background:#effcf3;border:1px solid #a7f3c0;color:#166534}.bad{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239}.info{background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:520px){.grid{grid-template-columns:1fr}}h1{font-size:22px;margin:0 0 8px}h2{font-size:17px;margin:0 0 8px}.hidden{display:none}.warning{color:#92400e;background:#fffbeb;border:1px solid #fde68a;padding:12px;border-radius:9px;line-height:1.5}
+</style></head>
+<body><main class="wrap">
+<section class="card"><h1>MVIApps TEST — Staff Parties/Items API Diagnostic</h1><p class="sub">TEST ONLY. This page sends read-only GET requests. It does not create, edit, or delete records. It never displays or logs the Staff session token or record contents.</p><div class="warning">Use only the test staff account created for the TEST business. This checks the TEST Worker API only; it does not connect the live MVIApps app or prove production security.</div></section>
+<section class="card"><h2>1. Sign in as TEST Staff</h2><form id="loginForm"><label for="userId">Staff User ID</label><input id="userId" value="teststaff01" autocomplete="username" required><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required><button id="loginBtn" type="submit">Sign in as TEST Staff</button></form><div id="loginStatus" class="status info">Not signed in on this page.</div><div id="sessionPanel" class="hidden"><pre id="sessionDetails"></pre><button id="checkSessionBtn" class="secondary" type="button">Check Staff Session</button><button id="logoutBtn" class="secondary" type="button">Logout TEST Staff</button></div></section>
+<section class="card"><h2>2. Read-only module permission checks</h2><p class="sub">The page obtains the assigned Business ID from the authenticated Staff session. It sends the matching permission header: <code>parties.view</code> or <code>items.view</code> is enforced by the TEST Worker. Only status, record count, and whether a next page exists are displayed.</p><div class="grid"><button id="partiesBtn" type="button" disabled>Test Parties — View (GET)</button><button id="itemsBtn" type="button" disabled>Test Items — View (GET)</button></div><div id="apiStatus" class="status info">Sign in first. No API request has been sent.</div><div id="apiDetails"></div></section>
+<section class="card"><p class="sub">TEST Worker: mviapps-trial-test-api. Keep the production Worker, real MVIApps data, and Google Drive Sync unchanged.</p></section>
+</main>
+<script type="module">
+const BASE = "https://mviapps-trial-test-api.mvi2k21.workers.dev";
+const LOGIN = `${BASE}/staff/login`;
+const SESSION = `${BASE}/staff/session`;
+const LOGOUT = `${BASE}/staff/logout`;
+const API = { parties: `${BASE}/business/data/parties`, items: `${BASE}/business/data/items` };
+let staffToken = null;
+let ownBusinessId = null;
+const $ = id => document.getElementById(id);
+function status(el, text, kind="info") { el.textContent = text; el.className = `status ${kind}`; }
+function showSession(info) {
+  $("sessionPanel").classList.remove("hidden");
+  $("sessionDetails").textContent = `HTTP status: 200\nAuthenticated: true\nStaff User ID: ${info.staff?.userId || "not returned"}\nStaff name: ${info.staff?.staffName || "not returned"}\nAssigned Business ID: ${info.staff?.businessId || "not returned"}\nMust change password: ${Boolean(info.mustChangePassword)}\nSession token remains in page memory and is not displayed.`;
+  ownBusinessId = info.staff?.businessId || null;
+  const ready = !!staffToken && !!ownBusinessId && !info.mustChangePassword;
+  $("partiesBtn").disabled = !ready; $("itemsBtn").disabled = !ready;
+}
+async function checkSession() {
+  if (!staffToken) { status($("loginStatus"), "No Staff session in this page. Sign in first.", "bad"); return null; }
+  try {
+    const r = await fetch(SESSION, { headers: { Authorization: `Bearer ${staffToken}` } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.authenticated !== true) {
+      staffToken = null; ownBusinessId = null; $("sessionPanel").classList.add("hidden");
+      $("partiesBtn").disabled = true; $("itemsBtn").disabled = true;
+      status($("loginStatus"), `Staff session check failed. HTTP ${r.status}; code: ${j.code || "none"}. Sign in again.`, "bad"); return null;
+    }
+    showSession(j); status($("loginStatus"), "Staff session is active.", "ok"); return j;
+  } catch (e) { status($("loginStatus"), `Session request failed: ${e.message || "network/CORS error"}`, "bad"); return null; }
+}
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("loginBtn").disabled = true; status($("loginStatus"), "Signing in to TEST Staff…");
+  try {
+    const r = await fetch(LOGIN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: $("userId").value.trim(), password: $("password").value }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.authenticated !== true || !j.token) { staffToken = null; status($("loginStatus"), `Login failed. HTTP ${r.status}; code: ${j.code || "none"}; message: ${j.error || "No details"}`, "bad"); return; }
+    staffToken = j.token; $("password").value = ""; showSession(j);
+    if (j.mustChangePassword) { status($("loginStatus"), "Login succeeded, but this Staff account must change its initial password before data access. Use the existing TEST Staff page to change it, then return here and sign in again.", "bad"); $("partiesBtn").disabled = true; $("itemsBtn").disabled = true; }
+    else status($("loginStatus"), "Staff login successful. Read-only module tests are ready.", "ok");
+  } catch (err) { status($("loginStatus"), `Login request failed: ${err.message || "network/CORS error"}`, "bad"); }
+  finally { $("loginBtn").disabled = false; }
+});
+$("checkSessionBtn").addEventListener("click", checkSession);
+async function testModule(type) {
+  const btn = type === "parties" ? $("partiesBtn") : $("itemsBtn");
+  btn.disabled = true; status($("apiStatus"), `Sending read-only ${type} request…`); $("apiDetails").textContent = "";
+  try {
+    const s = await checkSession(); if (!s || !ownBusinessId) return;
+    const u = new URL(API[type]); u.searchParams.set("businessId", ownBusinessId);
+    const r = await fetch(u, { method: "GET", headers: { Authorization: `Bearer ${staffToken}`, "X-MVIApps-Auth-Mode": "staff" } });
+    const j = await r.json().catch(() => ({}));
+    const allowed = r.ok && j.testOnly === true && j.businessId === ownBusinessId && Array.isArray(j.records);
+    status($("apiStatus"), `${type === "parties" ? "Parties" : "Items"} read-only request completed. ${allowed ? "API allowed the request." : "API did not return an authorized record list."}`, allowed ? "ok" : "bad");
+    const box = document.createElement("div"); box.className = "card"; box.style.marginTop = "12px";
+    const h = document.createElement("h2"); h.textContent = `${type === "parties" ? "Parties" : "Items"} permission result`; box.appendChild(h);
+    const p = document.createElement("pre"); p.textContent = `HTTP status: ${r.status}\nExpected permission: ${type === "parties" ? "parties.view" : "items.view"}\nAuthenticated Staff business matched: ${j.businessId === ownBusinessId ? "true" : "not confirmed"}\nRecords returned: ${Array.isArray(j.records) ? j.records.length : "not returned"}\nNext page available: ${j.nextCursor ? "true" : "false"}\nResponse code: ${j.code || "none"}\nMessage: ${j.error || "Request completed"}\nRecord contents and authentication token are not displayed.`; box.appendChild(p); $("apiDetails").replaceChildren(box);
+  } catch (err) { status($("apiStatus"), `Request failed: ${err.message || "network/CORS error"}. Check TEST Worker logs.`, "bad"); }
+  finally { btn.disabled = !(staffToken && ownBusinessId); }
+}
+$("partiesBtn").addEventListener("click", () => testModule("parties"));
+$("itemsBtn").addEventListener("click", () => testModule("items"));
+$("logoutBtn").addEventListener("click", async () => {
+  if (staffToken) { try { await fetch(LOGOUT, { method: "POST", headers: { Authorization: `Bearer ${staffToken}` } }); } catch {} }
+  staffToken = null; ownBusinessId = null; $("sessionPanel").classList.add("hidden"); $("partiesBtn").disabled = true; $("itemsBtn").disabled = true;
+  status($("loginStatus"), "Signed out of this TEST Staff page. Token cleared from page memory.", "info"); status($("apiStatus"), "Sign in first. No API request has been sent.", "info"); $("apiDetails").textContent = "";
+});
+</script></body></html>
