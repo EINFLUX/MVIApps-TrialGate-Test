@@ -1,0 +1,102 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVIApps TEST Transaction API Combined CRUD Regression</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f7fb;color:#172033;margin:0;padding:20px}.wrap{max-width:1100px;margin:auto}h1{font-size:23px}.note{color:#475569;line-height:1.5}.card{background:#fff;border:1px solid #dbe3ef;border-radius:12px;padding:18px;margin:15px 0}label{display:block;font-weight:600;margin:12px 0 6px}input{width:100%;box-sizing:border-box;border:1px solid #b8c5d8;border-radius:8px;padding:10px;font-size:14px}button{border:0;border-radius:8px;padding:12px 16px;font-weight:700;cursor:pointer;background:#155eef;color:#fff}button:disabled{opacity:.5}.warning{background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;color:#9a3412}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:8px}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}th{background:#f8fafc}.pass{color:#067647;font-weight:700}.fail{color:#b42318;font-weight:700}.muted{color:#64748b}@media(max-width:650px){body{padding:10px}.row{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<h1>MVIApps TEST — Combined Transaction API CRUD Regression</h1>
+<p class="note">One run covers the seven remaining transaction routes after the separate Sale Invoice test: create one clearly labelled synthetic record, read it back, verify it is not visible through a second Business ID, and soft-delete only the synthetic record created by this run. Parties and Items are deliberately excluded because their CRUD/security checks were previously completed. No existing records are edited.</p>
+<div class="warning"><b>TEST ONLY.</b> Use only the dedicated TEST Worker and TEST Firebase Owner account. This page writes up to seven synthetic records into the TEST database and attempts cleanup of each record. Keep the page open until the final cleanup status appears. If cleanup fails, the exact synthetic ID is shown. Never use Production credentials or a Production Worker URL.</div>
+<div class="card">
+<h2>1. TEST Owner login</h2>
+<label for="email">TEST Firebase email</label><input id="email" type="email" autocomplete="username" placeholder="TEST Owner email">
+<label for="password">TEST Firebase password</label><input id="password" type="password" autocomplete="current-password" placeholder="TEST Owner password">
+<div class="row"><div><label for="worker">TEST Worker URL</label><input id="worker" value="https://mviapps-trial-test-api.mvi2k21.workers.dev"></div><div><label for="business">Owner TEST Business ID</label><input id="business" value="3832673a-6c73-4c0b-ad1f-b7e041e5f8df"></div></div>
+<label for="other">Second TEST Business ID (isolation check)</label><input id="other" value="70d88197-2050-4e6c-a3d8-729164a7ed97">
+<p class="note">Confirm both IDs against your TEST data. The first should match the Owner's Business Access screen. The second ID is used only for read-only isolation checks.</p>
+<div class="actions"><button id="run">Sign in and test 7 transaction routes</button><button id="clear" type="button" style="background:#475569">Clear results</button></div>
+</div>
+<div class="card"><h2>2. Results</h2><p id="summary" class="muted">Not started. No requests made.</p>
+<div style="overflow-x:auto"><table><thead><tr><th>Route</th><th>Create</th><th>Read-back</th><th>Isolation</th><th>Cleanup</th><th>Notes / synthetic ID</th></tr></thead><tbody id="results"><tr><td colspan="6" class="muted">Waiting for test.</td></tr></tbody></table></div>
+<details style="margin-top:12px"><summary>Sanitized technical details</summary><pre id="details">No requests made.</pre></details></div>
+<p class="note">This test checks generic Worker CRUD behavior for these route handlers; it does not validate the full MVIApps invoice/return/payment business calculations or UI integration. A 403/404 isolation response is acceptable only if the synthetic record is not returned. Cleanup must be PASS or explicitly followed up.</p>
+</div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+const firebaseConfig={apiKey:"AIzaSyDF6iSPn_FLpvJFOHsNvfiBzvkUO57Q8PA",authDomain:"mviapps-test-auth.firebaseapp.com",projectId:"mviapps-test-auth",storageBucket:"mviapps-test-auth.firebasestorage.app",messagingSenderId:"490578513154",appId:"1:490578513154:web:2eb4b08d71dadeacaf061b"};
+const DEFAULT_WORKER="https://mviapps-trial-test-api.mvi2k21.workers.dev";
+const auth=getAuth(initializeApp(firebaseConfig)), $=id=>document.getElementById(id);
+const routes=[
+["Sales returns","/business/data/sales-returns","salesReturnNo"],
+["Purchase invoices","/business/data/purchase-invoices","purchaseInvoiceNo"],
+["Purchase returns","/business/data/purchase-returns","purchaseReturnNo"],
+["Payment-In","/business/data/payment-in","paymentInNo"],
+["Payment-Out","/business/data/payment-out","paymentOutNo"],
+["Expenses","/business/data/expenses","expenseNo"],
+["Other Income","/business/data/other-income","incomeNo"]
+];
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function reset(){ $("summary").textContent="Not started. No requests made.";$("summary").className="muted";$("results").innerHTML='<tr><td colspan="6" class="muted">Waiting for test.</td></tr>';$("details").textContent="No requests made."}
+$("clear").onclick=reset;
+$("run").onclick=async()=>{
+ const btn=$("run");btn.disabled=true;reset();let token=null;
+ const base=$("worker").value.trim().replace(/\/+$/,""),business=$("business").value.trim(),other=$("other").value.trim();
+ const details=[];let createPass=0,readPass=0,isolationPass=0,cleanupPass=0,issues=0;
+ const addDetail=x=>{details.push(x);$("details").textContent=JSON.stringify(details,null,2)};
+ try{
+  if(base!==DEFAULT_WORKER)throw Error("Safety stop: Worker URL must match the known dedicated TEST Worker.");
+  if(!/^[0-9a-f-]{36}$/i.test(business)||!/^[0-9a-f-]{36}$/i.test(other)||business===other)throw Error("Safety stop: check two distinct 36-character TEST Business IDs.");
+  const cred=await signInWithEmailAndPassword(auth,$("email").value.trim(),$("password").value);$("password").value="";
+  if(!cred.user.emailVerified)throw Error("TEST Firebase account email is not verified.");
+  token=await cred.user.getIdToken(true);
+  const who=await fetch(base+"/whoami",{headers:{Authorization:"Bearer "+token,Accept:"application/json"}});
+  const w=await who.json().catch(()=>({}));
+  if(!who.ok||w.authenticated!==true||w.emailVerified!==true)throw Error("TEST Worker /whoami failed HTTP "+who.status+".");
+  $("summary").textContent="Owner authenticated. Running seven route tests…";
+  const headers={"Authorization":"Bearer "+token,"X-MVIApps-Auth-Mode":"owner","Content-Type":"application/json","Accept":"application/json"};
+  for(const [label,path,field] of routes){
+   const id="MVI_TEST_"+field.toUpperCase()+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
+   let created=false,cr="NOT RUN",rd="NOT RUN",iso="NOT RUN",cl="NOT NEEDED",notes=[];
+   const row=document.createElement("tr");row.innerHTML="<td>"+esc(label)+"<br><span class='muted'>"+esc(path)+"</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>"+esc(id)+"</td>";$("results").appendChild(row);
+   const paint=()=>{row.innerHTML="<td>"+esc(label)+"<br><span class='muted'>"+esc(path)+"</span></td><td class='"+(cr==="PASS"?"pass":cr==="FAIL"?"fail":"muted")+"'>"+esc(cr)+"</td><td class='"+(rd==="PASS"?"pass":rd==="FAIL"?"fail":"muted")+"'>"+esc(rd)+"</td><td class='"+(iso==="PASS"?"pass":iso==="FAIL"?"fail":"muted")+"'>"+esc(iso)+"</td><td class='"+(cl==="PASS"?"pass":cl==="FAIL"?"fail":"muted")+"'>"+esc(cl)+"</td><td>"+esc(notes.join("; ")||"")+"<br><span class='muted'>ID: "+esc(id)+"</span></td>";};
+   try{
+    const record={id,recordNo:id,invoiceNo:id,voucherNo:id,referenceNo:id,date:"29/10/2026",partyId:"MVI_TEST_PARTY",partyName:"MVI TEST Synthetic Party",customer:"MVI_TEST_PARTY",customerName:"MVI TEST Synthetic Customer",supplier:"MVI_TEST_PARTY",supplierName:"MVI TEST Synthetic Supplier",amount:1,total:1,notes:"Synthetic API regression probe only; safe to remove.",testMarker:"MVI_TEST_SYNTHETIC_ONLY"};
+    const post=await fetch(base+path+"?businessId="+encodeURIComponent(business),{method:"POST",headers,body:JSON.stringify({businessId:business,id,record})});
+    const pb=await post.json().catch(()=>({}));
+    if(post.ok&&pb.saved===true){cr="PASS";created=true;createPass++;notes.push("HTTP "+post.status)}else{cr="FAIL";issues++;notes.push("CREATE HTTP "+post.status+" "+(pb.code||pb.error||"unexpected response"))}
+    paint();
+    if(created){
+     try{
+      const get=await fetch(base+path+"?businessId="+encodeURIComponent(business),{headers});
+      const gb=await get.json().catch(()=>({}));
+      const found=Array.isArray(gb.records)&&gb.records.some(x=>String(x.id)===id||String(x.record?.id)===id);
+      if(get.ok&&found){rd="PASS";readPass++}else{rd="FAIL";issues++;notes.push("READ HTTP "+get.status+"; synthetic ID not found")}
+     }catch(e){rd="FAIL";issues++;notes.push("READ error "+e.message)}
+     paint();
+     try{
+      const cross=await fetch(base+path+"?businessId="+encodeURIComponent(other),{headers});
+      const cb=await cross.json().catch(()=>({}));
+      const leaked=Array.isArray(cb.records)&&cb.records.some(x=>String(x.id)===id||String(x.record?.id)===id);
+      if(!leaked&&(cross.status===403||cross.status===404)){iso="PASS";isolationPass++;notes.push("other business denied HTTP "+cross.status)}
+      else if(!leaked&&cross.ok){iso="PASS";isolationPass++;notes.push("other business returned no synthetic record")}
+      else{iso="FAIL";issues++;notes.push("isolation HTTP "+cross.status+(leaked?"; RECORD LEAK DETECTED":""))}
+     }catch(e){iso="FAIL";issues++;notes.push("isolation error "+e.message)}
+     paint();
+    }
+   }catch(e){cr="FAIL";issues++;notes.push("request error "+e.message);paint()}
+   finally{
+    if(created){
+     try{
+      const del=await fetch(base+path+"?businessId="+encodeURIComponent(business),{method:"DELETE",headers,body:JSON.stringify({businessId:business,id})});
+      const db=await del.json().catch(()=>({}));
+      if(del.ok&&db.deleted===true){cl="PASS";cleanupPass++}else{cl="FAIL";issues++;notes.push("CLEANUP HTTP "+del.status+" "+(db.code||db.error||"")+"; keep ID for manual follow-up")}
+     }catch(e){cl="FAIL";issues++;notes.push("CLEANUP error; keep ID for manual follow-up")}
+    }
+    paint();addDetail({route:path,id,create:cr,readBack:rd,isolation:iso,cleanup:cl,notes});
+   }
+  }
+  $("summary").textContent="Finished 7 routes. Create "+createPass+"/7; read-back "+readPass+"/7; isolation "+isolationPass+"/7; cleanup "+cleanupPass+"/7. Issues: "+issues+". Check each row and sanitized details.";
+  $("summary").className=issues===0&&createPass===7&&readPass===7&&isolationPass===7&&cleanupPass===7?"pass":"fail";
+ }catch(e){$("summary").textContent="Test did not start: "+(e.message||String(e));$("summary").className="fail"}
+ finally{try{await signOut(auth)}catch{}$("password").value="";btn.disabled=false}
+};
+</script></body></html>
