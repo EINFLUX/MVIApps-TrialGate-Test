@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MVIApps TEST Transaction API — Owner Login + Read-only Smoke Test</title>
+<style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#f4f7fb}body{margin:0;padding:22px}.wrap{max-width:960px;margin:auto}h1{font-size:23px}.note{color:#475569;line-height:1.5}.card{background:white;border:1px solid #dbe3ef;border-radius:12px;padding:18px;margin:15px 0}label{display:block;font-weight:600;margin:12px 0 6px}input{width:100%;box-sizing:border-box;border:1px solid #b8c5d8;border-radius:8px;padding:11px;font-size:15px}button{border:0;border-radius:8px;padding:11px 15px;font-weight:700;cursor:pointer;background:#155eef;color:#fff}button.secondary{background:#475569}button:disabled{opacity:.5}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}.warning{background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;color:#9a3412}.status{padding:12px;border-radius:8px;background:#f8fafc;white-space:pre-wrap;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:9px;border-bottom:1px solid #e2e8f0;text-align:left}th{background:#f8fafc}.pass{color:#067647;font-weight:700}.fail{color:#b42318;font-weight:700}.muted{color:#64748b}@media(max-width:650px){body{padding:10px}}
+</style>
+</head>
+<body><div class="wrap">
+<h1>MVIApps TEST Transaction API — Owner Login + Read-only Smoke Test</h1>
+<p class="note">This dedicated TEST page signs in to the TEST Firebase project, obtains an ID token internally, and sends GET requests only. It never creates, edits, or deletes business records and does not access LocalStorage/IndexedDB.</p>
+<div class="warning"><b>TEST ONLY.</b> Use only your TEST account and TEST Worker. Never enter Production credentials. The password and token are not displayed or saved by this page. After testing, sign out and close this page.</div>
+<div class="card">
+<h2>1. TEST Owner login</h2>
+<label for="email">TEST Owner email</label><input id="email" type="email" autocomplete="username" placeholder="Your TEST Firebase email">
+<label for="password">TEST Owner password</label><input id="password" type="password" autocomplete="current-password" placeholder="Password for TEST Firebase account">
+<div class="actions"><button id="login">Sign in to TEST Firebase</button><button id="logout" class="secondary" disabled>Sign out</button></div>
+<div id="authStatus" class="status" style="margin-top:12px">Not signed in.</div>
+</div>
+<div class="card">
+<h2>2. Read-only API test</h2>
+<label for="worker">TEST Worker base URL</label><input id="worker" value="https://mviapps-trial-test-api.mvi2k21.workers.dev">
+<label for="business">TEST Business ID</label><input id="business" value="3832673a-6c73-4c0b-ad1f-b7e041e5f8df">
+<p class="note">Business ID is prefilled from the TEST Business Access screen shown in your screenshot. Confirm it matches your TEST Owner business before running.</p>
+<div class="actions"><button id="run" disabled>Run GET-only smoke test</button><button id="clear" class="secondary">Clear results</button></div>
+<p id="summary" class="muted">Sign in first. No tests run yet.</p>
+<div style="overflow-x:auto"><table><thead><tr><th>Route</th><th>HTTP</th><th>Result</th><th>Records</th><th>Notes</th></tr></thead><tbody id="results"><tr><td colspan="5" class="muted">Waiting for test.</td></tr></tbody></table></div>
+<details style="margin-top:12px"><summary>Sanitized technical details</summary><pre id="details">No requests made.</pre></details>
+</div>
+<p class="note">A PASS confirms only authenticated GET access for that route and business. It does not prove migration, data parity, or full app integration. This page does not show or copy your ID token.</p>
+</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+const firebaseConfig={apiKey:"AIzaSyDF6iSPn_FLpvJFOHsNvfiBzvkUO57Q8PA",authDomain:"mviapps-test-auth.firebaseapp.com",projectId:"mviapps-test-auth",storageBucket:"mviapps-test-auth.firebasestorage.app",messagingSenderId:"490578513154",appId:"1:490578513154:web:2eb4b08d71dadeacaf061b"};
+const API_DEFAULT="https://mviapps-trial-test-api.mvi2k21.workers.dev";
+const app=initializeApp(firebaseConfig),auth=getAuth(app);
+const $=id=>document.getElementById(id);
+const routes=[["Parties","/business/data/parties"],["Items","/business/data/items"],["Sales invoices","/business/data/sales-invoices"],["Sales returns","/business/data/sales-returns"],["Purchase invoices","/business/data/purchase-invoices"],["Purchase returns","/business/data/purchase-returns"],["Payment-In","/business/data/payment-in"],["Payment-Out","/business/data/payment-out"],["Expenses","/business/data/expenses"],["Other Income","/business/data/other-income"]];
+function safeBase(v){return v.trim().replace(/\/+$/,"")}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function resetResults(){ $("summary").textContent="No tests run yet."; $("summary").className="muted"; $("results").innerHTML='<tr><td colspan="5" class="muted">Waiting for test.</td></tr>'; $("details").textContent="No requests made."; }
+$("worker").value=API_DEFAULT;
+$("login").addEventListener("click",async()=>{
+ $("login").disabled=true;
+ try{
+  const email=$("email").value.trim(),password=$("password").value;
+  if(!email||!password)throw new Error("Enter the TEST Firebase email and password.");
+  const cred=await signInWithEmailAndPassword(auth,email,password);
+  const token=await cred.user.getIdToken(true);
+  const response=await fetch(API_DEFAULT+"/whoami",{headers:{Authorization:"Bearer "+token,Accept:"application/json"}});
+  const body=await response.json().catch(()=>({}));
+  if(!response.ok||body.authenticated!==true)throw new Error("TEST Worker /whoami did not confirm authentication (HTTP "+response.status+").");
+  $("authStatus").textContent="TEST login successful. Email verified: "+String(body.emailVerified===true)+". API test is enabled. Token is hidden.";
+  $("password").value="";
+ }catch(e){$("authStatus").textContent="Login/check failed: "+(e.message||String(e));}
+ finally{$("login").disabled=false;}
+});
+onAuthStateChanged(auth,user=>{
+ $("run").disabled=!user;
+ $("logout").disabled=!user;
+ if(!user && !$("authStatus").textContent.includes("failed")) $("authStatus").textContent="Not signed in.";
+ if(user && !$("authStatus").textContent.includes("successful")) $("authStatus").textContent="Signed in to TEST Firebase as "+user.email+". Token is hidden.";
+});
+$("logout").addEventListener("click",async()=>{await signOut(auth);$("password").value="";$("authStatus").textContent="Signed out.";resetResults();});
+$("clear").addEventListener("click",resetResults);
+$("run").addEventListener("click",async()=>{
+ const user=auth.currentUser,base=safeBase($("worker").value),business=$("business").value.trim();
+ if(!user){alert("Sign in to TEST Firebase first.");return}
+ if(!/^https:\/\/[^/]+/i.test(base)){alert("Enter the HTTPS URL of the dedicated TEST Worker.");return}
+ if(!/^[0-9a-f-]{36}$/i.test(business)){alert("Enter the 36-character TEST Business ID.");return}
+ if(base!==API_DEFAULT){alert("For this prepared test, use the known dedicated TEST Worker URL only.");return}
+ $("run").disabled=true;$("summary").textContent="Running GET-only requests…";$("results").innerHTML="";
+ const details=[];let passed=0,failed=0;
+ try{
+  const token=await user.getIdToken(true);
+  for(const [label,path] of routes){
+   let status="—",result="FAIL",count="—",notes="";
+   try{
+    const res=await fetch(base+path+"?businessId="+encodeURIComponent(business),{method:"GET",headers:{Authorization:"Bearer "+token,"X-MVIApps-Auth-Mode":"owner","Accept":"application/json"}});
+    status=String(res.status);const body=await res.json().catch(()=>null);
+    if(res.ok&&body&&body.testOnly===true&&body.businessId===business&&Array.isArray(body.records)){result="PASS";count=String(body.records.length);notes=body.nextCursor?"More pages available":"No next cursor";passed++}
+    else{failed++;notes=(body&&(body.code||body.error))?String(body.code||body.error):"Unexpected response shape"}
+    details.push({route:path,httpStatus:res.status,result,recordCount:count,notes});
+   }catch(e){failed++;notes="Network/CORS error; check TEST Worker allowed origin.";details.push({route:path,httpStatus:status,result:"FAIL",recordCount:count,notes})}
+   const tr=document.createElement("tr");tr.innerHTML="<td>"+esc(label)+"<br><span class='muted'>"+esc(path)+"</span></td><td>"+esc(status)+"</td><td class='"+(result==="PASS"?"pass":"fail")+"'>"+esc(result)+"</td><td>"+esc(count)+"</td><td>"+esc(notes)+"</td>";$("results").appendChild(tr);
+  }
+  $("summary").textContent="Completed: "+passed+" PASS, "+failed+" FAIL. GET-only; no writes attempted.";$("summary").className=failed===0?"pass":"fail";$("details").textContent=JSON.stringify(details,null,2);
+ }finally{$("run").disabled=!auth.currentUser}
+});
+</script>
+</body></html>
