@@ -1,0 +1,101 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVIApps TEST Transaction Staff Permission Regression</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f7fb;color:#172033;margin:0;padding:20px}.wrap{max-width:1000px;margin:auto}.card{background:#fff;border:1px solid #dbe3ef;border-radius:12px;padding:18px;margin:14px 0}label{display:block;font-weight:600;margin:12px 0 6px}input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #b8c5d8;border-radius:8px;font-size:14px}button{background:#155eef;color:white;border:0;border-radius:8px;padding:12px 16px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5}.warning{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:8px;padding:12px;line-height:1.5}.note{color:#475569;line-height:1.5}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;border-radius:8px;padding:12px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}th{background:#f8fafc}.pass{color:#067647;font-weight:700}.fail{color:#b42318;font-weight:700}.muted{color:#64748b}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:650px){body{padding:10px}.row{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<h1>MVIApps TEST — Transaction Staff Permission Regression</h1>
+<p class="note">Targeted test only: checks Staff View permission for the seven new transaction routes, grouped by five modules. Existing Party/Item tests are not repeated. No business records are created, edited, or deleted. For each module, this page temporarily enables View, checks allowed access, temporarily disables View, checks denial, and restores the exact original permission before moving on.</p>
+<div class="warning"><b>TEST ONLY — permission settings are temporarily changed during this test.</b> Use only the TEST Worker and TEST Owner/Staff accounts. Do not run on Production. Keep the page open until every module says RESTORE PASS. If any restore fails, stop and use Owner settings to restore that module's original View permission before further work.</div>
+<div class="card"><h2>1. TEST accounts</h2>
+<label>TEST Owner email</label><input id="ownerEmail" type="email" autocomplete="username" placeholder="Verified TEST Firebase Owner email">
+<label>TEST Owner password</label><input id="ownerPassword" type="password" autocomplete="current-password">
+<div class="row"><div><label>TEST Staff User ID</label><input id="staffUser" value="teststaff01" autocomplete="username"></div><div><label>TEST Staff password</label><input id="staffPassword" type="password" autocomplete="current-password"></div></div>
+<label>TEST Worker URL (fixed safety check)</label><input id="worker" value="https://mviapps-trial-test-api.mvi2k21.workers.dev">
+<p class="note">Owner and Staff must belong to the same TEST Business. Staff must already have changed the initial password.</p>
+<button id="run">Sign in and run targeted permission test</button>
+</div>
+<div class="card"><h2>2. Results</h2><p id="summary" class="muted">Not started. No permissions changed.</p><div style="overflow-x:auto"><table><thead><tr><th>Module / routes</th><th>View ON</th><th>View OFF</th><th>Restore original</th><th>Details</th></tr></thead><tbody id="results"><tr><td colspan="5" class="muted">Waiting for test.</td></tr></tbody></table></div><details style="margin-top:12px"><summary>Sanitized details</summary><pre id="details">No requests made.</pre></details></div>
+</div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+const config={apiKey:"AIzaSyDF6iSPn_FLpvJFOHsNvfiBzvkUO57Q8PA",authDomain:"mviapps-test-auth.firebaseapp.com",projectId:"mviapps-test-auth",storageBucket:"mviapps-test-auth.firebasestorage.app",messagingSenderId:"490578513154",appId:"1:490578513154:web:2eb4b08d71dadeacaf061b"};
+const API="https://mviapps-trial-test-api.mvi2k21.workers.dev",auth=getAuth(initializeApp(config)),$=id=>document.getElementById(id);
+const groups=[
+ {module:"sales",label:"Sales",routes:[["Sales invoices","/business/data/sales-invoices"],["Sales returns","/business/data/sales-returns"]]},
+ {module:"purchases",label:"Purchases",routes:[["Purchase invoices","/business/data/purchase-invoices"],["Purchase returns","/business/data/purchase-returns"]]},
+ {module:"payments",label:"Payments",routes:[["Payment-In","/business/data/payment-in"],["Payment-Out","/business/data/payment-out"]]},
+ {module:"expenses",label:"Expenses",routes:[["Expenses","/business/data/expenses"]]},
+ {module:"income",label:"Income",routes:[["Other Income","/business/data/other-income"]]}
+];
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function deepClone(o){return JSON.parse(JSON.stringify(o||{}))}
+function permissionAllowed(j){return j.status===200 && j.code!=="STAFF_PERMISSION_DENIED"}
+$("run").onclick=async()=>{
+ const btn=$("run");btn.disabled=true;$("results").innerHTML="";$("details").textContent="";let ownerToken=null,staffToken=null,businessId=null,userId=null,original=null,permissionUrl=null,restoreNeeded=false;
+ const rows=[],detail=[];let totalPass=0,totalChecks=0,restoreFailures=0;
+ const summary=t=>{$("summary").textContent=t;$("summary").className=restoreFailures?"fail":"muted"};
+ const addRow=(g,on,off,rest,notes)=>{const tr=document.createElement("tr");tr.innerHTML="<td><b>"+esc(g.label)+"</b><br>"+g.routes.map(x=>esc(x[0])).join("<br>")+"</td><td class='"+(on?"pass":"fail")+"'>"+(on?"PASS":"FAIL")+"</td><td class='"+(off?"pass":"fail")+"'>"+(off?"PASS":"FAIL")+"</td><td class='"+(rest?"pass":"fail")+"'>"+(rest?"PASS":"FAIL")+"</td><td>"+esc(notes.join("; "))+"</td>";$("results").appendChild(tr)};
+ const requestRoutes=async(g,token,bid)=>{const out=[];for(const [label,path] of g.routes){try{const r=await fetch(API+path+"?businessId="+encodeURIComponent(bid),{headers:{"Authorization":"Bearer "+token,"X-MVIApps-Auth-Mode":"staff","Accept":"application/json"}});const j=await r.json().catch(()=>({}));out.push({label,path,status:r.status,code:j.code||"",ok:r.ok,body:j})}catch(e){out.push({label,path,status:0,code:"NETWORK_ERROR",ok:false,error:e.message})}}return out};
+ const setPermissions=async p=>{const r=await fetch(API+"/business/staff-accounts/permissions",{method:"POST",headers:{"Authorization":"Bearer "+ownerToken,"Content-Type":"application/json"},body:JSON.stringify({businessId,userId,permissions:p})});const j=await r.json().catch(()=>({}));if(!r.ok||j.saved!==true)throw Error("Could not save permissions (HTTP "+r.status+" "+(j.code||j.error||"")+")");return j};
+ const getPermissions=async()=>{const r=await fetch(permissionUrl,{headers:{"Authorization":"Bearer "+ownerToken}});const j=await r.json().catch(()=>({}));if(!r.ok||!j.staff||!j.staff.permissions)throw Error("Could not read original Staff permissions (HTTP "+r.status+").");return j.staff.permissions};
+ try{
+  if($("worker").value.trim().replace(/\/+$/,"")!==API)throw Error("Safety stop: use only the fixed TEST Worker URL.");
+  const oc=await signInWithEmailAndPassword(auth,$("ownerEmail").value.trim(),$("ownerPassword").value);$("ownerPassword").value="";
+  if(!oc.user.emailVerified)throw Error("TEST Owner email is not verified.");
+  ownerToken=await oc.user.getIdToken(true);
+  const br=await fetch(API+"/business",{headers:{"Authorization":"Bearer "+ownerToken}}),bj=await br.json().catch(()=>({}));
+  if(!br.ok||bj.accessGranted!==true||!bj.business?.id)throw Error("Owner TEST business lookup failed (HTTP "+br.status+").");
+  businessId=bj.business.id;
+  const sr=await fetch(API+"/staff/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:$("staffUser").value.trim(),password:$("staffPassword").value})});
+  const sj=await sr.json().catch(()=>({}));$("staffPassword").value="";
+  if(!sr.ok||!sj.token)throw Error("Staff login failed (HTTP "+sr.status+" "+(sj.code||sj.error||"")+")");
+  staffToken=sj.token;
+  const sessionResponse=await fetch(API+"/staff/session",{headers:{"Authorization":"Bearer "+staffToken}}),session=await sessionResponse.json().catch(()=>({}));
+  if(!sessionResponse.ok||session.authenticated!==true||!session.staff?.businessId)throw Error("Staff session check failed.");
+  if(String(session.staff.businessId).toLowerCase()!==String(businessId).toLowerCase())throw Error("Owner and Staff belong to different TEST Businesses. No permission settings were changed.");
+  if(session.mustChangePassword===true||sj.mustChangePassword===true)throw Error("Staff must change initial password first. No permission settings were changed.");
+  userId=session.staff.userId||$("staffUser").value.trim();
+  permissionUrl=API+"/business/staff-accounts/permissions?businessId="+encodeURIComponent(businessId)+"&userId="+encodeURIComponent(userId);
+  original=await getPermissions();
+  $("summary").textContent="Authenticated. Testing 5 modules / 7 routes…";
+  for(const g of groups){
+   let onPass=false,offPass=false,restPass=false;const notes=[];
+   const on=deepClone(original);on[g.module]={...(on[g.module]||{}),view:true};
+   try{
+    await setPermissions(on);restoreNeeded=true;
+    const allow=await requestRoutes(g,staffToken,businessId);
+    onPass=allow.every(x=>x.status===200);
+    notes.push("View ON: "+allow.map(x=>x.label+"="+x.status).join(", "));
+    totalChecks++;if(onPass)totalPass++;
+    const off=deepClone(original);off[g.module]={...(off[g.module]||{}),view:false};
+    await setPermissions(off);
+    const deny=await requestRoutes(g,staffToken,businessId);
+    offPass=deny.every(x=>x.status===403&&x.code==="STAFF_PERMISSION_DENIED");
+    notes.push("View OFF: "+deny.map(x=>x.label+"="+x.status+(x.code?"/"+x.code:"")).join(", "));
+    totalChecks++;if(offPass)totalPass++;
+   }catch(e){notes.push("TEST ERROR: "+e.message)}
+   finally{
+    try{
+     await setPermissions(original);restoreNeeded=false;
+     const check=await getPermissions();
+     restPass=JSON.stringify(check)===JSON.stringify(original);
+     if(!restPass)throw Error("Permission values did not match original after restore.");
+     totalChecks++;if(restPass)totalPass++;
+     notes.push("Original permissions restored and verified.");
+    }catch(e){restoreFailures++;notes.push("RESTORE FAILURE: "+e.message+" — STOP and restore this module in Owner settings.");}
+   }
+   addRow(g,onPass,offPass,restPass,notes);detail.push({module:g.module,routes:g.routes.map(x=>x[1]),viewOnPass:onPass,viewOffPass:offPass,restorePass:restPass,notes});$("details").textContent=JSON.stringify(detail,null,2);
+   if(!restPass){summary("STOP: original permission restore could not be confirmed. Do not run further tests until restored.");break;}
+  }
+  const done=$("results").querySelectorAll("tr").length;
+  summary(restoreFailures?"STOP: restore needs attention.":"Finished targeted Staff permission test. Modules completed: "+done+"/5. Passed checks: "+totalPass+"/"+totalChecks+". No business records were created, edited, or deleted.");
+  $("summary").className=restoreFailures?"fail":(totalPass===totalChecks&&done===5?"pass":"fail");
+ }catch(e){summary("Test stopped: "+(e.message||String(e))+" No business records were created, edited, or deleted.");$("summary").className="fail"}
+ finally{
+  if(restoreNeeded&&original&&businessId&&userId&&ownerToken){try{await setPermissions(original);$("details").textContent+="\nEmergency restore: original permissions re-submitted. Verify in Owner settings."; }catch(e){$("details").textContent+="\nCRITICAL: emergency restore failed. Manually restore original permissions in Owner settings immediately.";}}
+  try{if(staffToken)await fetch(API+"/staff/logout",{method:"POST",headers:{"Authorization":"Bearer "+staffToken}})}catch{}
+  try{await signOut(auth)}catch{}
+  $("ownerPassword").value="";$("staffPassword").value="";btn.disabled=false;
+ }
+};
+</script></body></html>
