@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVIApps Party/Transaction Storage Audit — TEST ONLY</title><style>body{font:15px/1.5 system-ui,Arial,sans-serif;background:#f3f6fb;color:#182235;margin:0;padding:24px}.wrap{max-width:900px;margin:auto}.card{background:white;border:1px solid #cbd7ea;border-radius:14px;padding:20px;margin:14px 0}h1{font-size:23px;margin:0 0 8px}button{border:0;border-radius:9px;background:#315efb;color:white;font-weight:700;padding:12px 18px;cursor:pointer}button:disabled{opacity:.5}.muted{color:#596b88;font-size:13px}.warn{background:#fff7e8;border:1px solid #e8c27b;padding:12px;border-radius:10px}.good{color:#087b67;font-weight:700}.bad{color:#b45309;font-weight:700}table{width:100%;border-collapse:collapse;margin-top:12px}td,th{text-align:left;padding:8px;border-bottom:1px solid #e3e9f2;font-size:14px;overflow-wrap:anywhere}th{background:#f6f8fc}.status{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body><div class="wrap"><div class="card"><h1>MVIApps — Party & Transaction Storage Audit</h1><p><b>READ-ONLY · TEST ONLY</b></p><p>This page counts records and reference patterns in this browser origin's LocalStorage only. It does not display record values or IDs, and it does not write, normalize, delete, or sync anything.</p><div class="warn"><b>Important:</b> Use this page only on the GitHub Pages TEST site <code>einflux.github.io/MVIApps-TrialGate-Test/</code>. It refuses to run on the production domain or other origins. GitHub Pages LocalStorage is separate from <code>mviapps.xusma.in</code>; zero records here do not mean your real app has zero records.</div><p><button id="run">Run read-only storage audit</button></p><p class="muted">No Cloud API, D1, IndexedDB, Production Worker, or Google Drive Sync is used.</p></div><div class="card" id="result" aria-live="polite"><b>Result:</b> Not run yet.</div></div><script>
+(()=>{'use strict';
+const expectedHost='einflux.github.io';
+const expectedPath='/MVIApps-TrialGate-Test/';
+const stores=[
+ ['Parties','mviapps_parties'],['Sale invoices','mviapps_sales_invoices'],['Sale returns','mviapps_sales_returns'],['Purchase invoices','mviapps_purchase_invoices'],['Purchase returns','mviapps_purchase_returns'],['Payment-In','mviapps_payment_in'],['Payment-Out','mviapps_payment_out'],['Expenses','mviapps_expenses'],['Other Income','mviapps_other_income']
+];
+const refFields=['partyId','customerId','supplierId','party','customer','supplier'];
+const nameFields=['partyName','customerName','supplierName'];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function getArray(key){const raw=localStorage.getItem(key);if(raw===null)return {rows:[],bad:false,missing:true};try{const v=JSON.parse(raw);return Array.isArray(v)?{rows:v,bad:false,missing:false}:{rows:[],bad:true,missing:false};}catch{return {rows:[],bad:true,missing:false};}}
+function summarize(){
+ if(location.hostname!==expectedHost || !(location.pathname===expectedPath || location.pathname.startsWith(expectedPath))){throw new Error('Safety stop: this audit is allowed only on the GitHub Pages TEST repository path. No data was read.');}
+ const data=new Map(); let malformedStores=0;
+ for(const [label,key] of stores){const v=getArray(key);if(v.bad)malformedStores++;data.set(key,{...v,label,key});}
+ const parties=data.get('mviapps_parties').rows;
+ const partyIds=new Set(parties.map(p=>String(p?.id??'').trim()).filter(Boolean));
+ const partyNames=new Map(); for(const p of parties){const n=String(p?.name??'').trim().toLowerCase();if(n){partyNames.set(n,(partyNames.get(n)||0)+1);}}
+ const idTypes={number:0,string:0,other:0,missing:0};for(const p of parties){if(p?.id===undefined||p?.id===null||p.id==='')idTypes.missing++;else if(typeof p.id==='number')idTypes.number++;else if(typeof p.id==='string')idTypes.string++;else idTypes.other++;}
+ const summary=[];let totalRows=0,totalIdRefs=0,totalNameRefs=0,totalNoRef=0,totalAmbiguous=0,totalUnmatched=0;
+ for(const [label,key] of stores.slice(1)){
+  const rows=data.get(key).rows;let idRefs=0,nameRefs=0,noRef=0,ambiguous=0,unmatched=0;
+  for(const row of rows){
+   const ids=refFields.map(f=>row?.[f]).filter(v=>v!==undefined&&v!==null&&String(v).trim()!=='');
+   const names=nameFields.map(f=>row?.[f]).filter(v=>v!==undefined&&v!==null&&String(v).trim()!=='');
+   if(ids.length){idRefs++;const matches=ids.some(v=>partyIds.has(String(v).trim()));if(!matches)unmatched++;}
+   if(names.length){nameRefs++;const normalized=names.map(v=>String(v).trim().toLowerCase());if(normalized.some(n=>(partyNames.get(n)||0)>1))ambiguous++;}
+   if(!ids.length&&!names.length)noRef++;
+  }
+  totalRows+=rows.length;totalIdRefs+=idRefs;totalNameRefs+=nameRefs;totalNoRef+=noRef;totalAmbiguous+=ambiguous;totalUnmatched+=unmatched;
+  summary.push({label,rows:rows.length,idRefs,nameRefs,noRef,ambiguous,unmatched,bad:data.get(key).bad});
+ }
+ return {parties:parties.length,idTypes,summary,totalRows,totalIdRefs,totalNameRefs,totalNoRef,totalAmbiguous,totalUnmatched,malformedStores,partyNamesDuplicate:[...partyNames.values()].filter(n=>n>1).length};
+}
+function render(r){let html='<h2>Read-only audit result</h2><p class="good">Completed — no records were written or changed.</p><table><tbody>';
+ const top=[['Party rows',r.parties],['Party ID types',`number ${r.idTypes.number}; string ${r.idTypes.string}; other ${r.idTypes.other}; missing ${r.idTypes.missing}`],['Transaction rows across 8 stores',r.totalRows],['Rows with recognized ID reference field(s)',r.totalIdRefs],['Rows with recognized name reference field(s)',r.totalNameRefs],['Rows with no recognized Party reference',r.totalNoRef],['Rows with unmatched ID references (count only)',r.totalUnmatched],['Rows with ambiguous name reference (count only)',r.totalAmbiguous],['Duplicate normalized Party-name groups',r.partyNamesDuplicate],['Malformed/non-array LocalStorage stores',r.malformedStores]];
+ for(const [k,v] of top)html+=`<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`;
+ html+='</tbody></table><h3>Per-store counts</h3><table><thead><tr><th>Store</th><th>Rows</th><th>ID ref rows</th><th>Name ref rows</th><th>No ref</th><th>Ambiguous names</th><th>Unmatched ID</th></tr></thead><tbody>';
+ for(const x of r.summary)html+=`<tr><td>${esc(x.label)}${x.bad?' (invalid JSON/non-array)':''}</td><td>${x.rows}</td><td>${x.idRefs}</td><td>${x.nameRefs}</td><td>${x.noRef}</td><td>${x.ambiguous}</td><td>${x.unmatched}</td></tr>`;
+ html+='</tbody></table>';
+ if(r.parties===0||r.totalRows===0)html+='<p class="bad">STATUS: NOT PROVEN — one or more stores contain zero rows; real-record reference compatibility cannot be established from empty samples.</p>';
+ else html+='<p class="bad">STATUS: AGGREGATE REVIEW ONLY — counts flag patterns for review; they do not prove every transaction reference is correct.</p>';
+ html+='<p class="muted">Privacy: no raw record, Party name, ID, phone, GSTIN/PAN, address, balance, invoice value, or token is displayed. This page only reads the nine named LocalStorage keys on this TEST origin. No values are persisted by this audit.</p>';
+ document.getElementById('result').innerHTML=html;
+}
+document.getElementById('run').addEventListener('click',()=>{const b=document.getElementById('run');b.disabled=true;try{render(summarize());}catch(e){document.getElementById('result').innerHTML='<p class="bad">'+esc(e.message)+'</p>';}finally{b.disabled=false;}});
+})();
+</script></body></html>
