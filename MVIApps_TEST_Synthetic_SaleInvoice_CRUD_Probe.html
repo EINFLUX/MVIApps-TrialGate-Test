@@ -1,0 +1,63 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVIApps TEST Synthetic Sale Invoice Probe</title>
+<style>body{font-family:Arial,sans-serif;background:#f4f7fb;color:#172033;margin:0;padding:20px}.wrap{max-width:760px;margin:auto}.card{background:#fff;border:1px solid #dbe3ef;border-radius:12px;padding:18px;margin:14px 0}label{display:block;margin:12px 0 6px;font-weight:bold}input{box-sizing:border-box;width:100%;padding:10px;border:1px solid #b8c5d8;border-radius:8px}button{background:#155eef;color:white;border:0;border-radius:8px;padding:12px 16px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5}.warning{background:#fff7ed;border:1px solid #fed7aa;padding:12px;border-radius:8px;color:#9a3412}.status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:8px}.note{color:#475569;line-height:1.5}</style></head><body><div class="wrap">
+<h2>MVIApps TEST — Synthetic Sale Invoice CRUD Probe</h2>
+<p class="note">TEST-only controlled write test. This page creates one clearly labelled synthetic invoice, reads it back, checks isolation against a second Business ID, then attempts to soft-delete only the synthetic invoice it created. No existing record is edited.</p>
+<div class="warning"><b>Use only your TEST Firebase account and TEST Worker.</b> Do not use Production credentials. Keep this page open until cleanup result appears. If cleanup fails, the synthetic record ID will be shown so it can be removed safely.</div>
+<div class="card"><label>TEST Owner email</label><input id="email" type="email" autocomplete="username" placeholder="TEST Firebase email">
+<label>TEST Owner password</label><input id="password" type="password" autocomplete="current-password" placeholder="TEST Firebase password">
+<label>TEST Worker URL</label><input id="worker" value="https://mviapps-trial-test-api.mvi2k21.workers.dev">
+<label>Owner Business ID</label><input id="business" value="3832673a-6c73-4c0b-ad1f-b7e041e5f8df">
+<label>Other TEST Business ID (isolation check)</label><input id="other" value="70d88197-2050-4e6c-a3d8-729164a7ed97">
+<p class="note">Confirm the first ID matches the Owner's Business Access screen. This test uses the second ID only for a read-only access/isolation check.</p>
+<button id="run">Sign in and run synthetic test</button>
+</div><div class="card"><b>Results</b><p id="status" class="status">Not started. No request made.</p></div></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+const config={apiKey:"AIzaSyDF6iSPn_FLpvJFOHsNvfiBzvkUO57Q8PA",authDomain:"mviapps-test-auth.firebaseapp.com",projectId:"mviapps-test-auth",storageBucket:"mviapps-test-auth.firebasestorage.app",messagingSenderId:"490578513154",appId:"1:490578513154:web:2eb4b08d71dadeacaf061b"};
+const auth=getAuth(initializeApp(config)),$=id=>document.getElementById(id);
+$("run").onclick=async()=>{const btn=$("run");btn.disabled=true;let token="",created=false,recordId="",base=$("worker").value.trim().replace(/\/+$/,""),business=$("business").value.trim(),other=$("other").value.trim(),lines=[];
+const out=t=>{$("status").textContent=lines.join("\n")+(t?"\n"+t:"")};
+try{
+ if(base!=="https://mviapps-trial-test-api.mvi2k21.workers.dev")throw Error("Worker URL is not the known dedicated TEST Worker.");
+ if(!/^[0-9a-f-]{36}$/i.test(business)||!/^[0-9a-f-]{36}$/i.test(other)||business===other)throw Error("Check both distinct 36-character TEST Business IDs.");
+ const cred=await signInWithEmailAndPassword(auth,$("email").value.trim(),$("password").value);$("password").value="";
+ if(!cred.user.emailVerified)throw Error("TEST Firebase email is not verified.");
+ token=await cred.user.getIdToken(true);
+ const h={"Authorization":"Bearer "+token,"X-MVIApps-Auth-Mode":"owner","Content-Type":"application/json","Accept":"application/json"};
+ const who=await fetch(base+"/whoami",{headers:{"Authorization":"Bearer "+token}});const w=await who.json().catch(()=>({}));
+ if(!who.ok||w.authenticated!==true||w.emailVerified!==true)throw Error("TEST Worker /whoami failed HTTP "+who.status);
+ lines.push("TEST Owner authentication: PASS");
+ recordId="MVI_TEST_SALE_"+Date.now();
+ const record={id:recordId,invoiceNo:recordId,date:"29/10/2026",customerName:"MVI TEST Synthetic Customer",partyId:"MVI_TEST_PARTY",items:[{itemName:"MVI TEST Synthetic Item",qty:1,rate:1,amount:1}],total:1,notes:"Synthetic API probe only; safe to remove."};
+ const post=await fetch(base+"/business/data/sales-invoices?businessId="+encodeURIComponent(business),{method:"POST",headers:h,body:JSON.stringify({businessId:business,id:recordId,record})});
+ const pb=await post.json().catch(()=>({}));
+ if(!post.ok||pb.saved!==true)throw Error("Synthetic CREATE failed HTTP "+post.status+" "+(pb.code||pb.error||""));
+ created=true;lines.push("Synthetic CREATE: PASS (HTTP "+post.status+")");out();
+ const get=await fetch(base+"/business/data/sales-invoices?businessId="+encodeURIComponent(business),{headers:h});const gb=await get.json().catch(()=>({}));
+ const found=Array.isArray(gb.records)&&gb.records.some(x=>String(x.id)===recordId||String(x.record?.id)===recordId);
+ if(!get.ok||!found)throw Error("READ-BACK failed HTTP "+get.status+"; synthetic ID="+recordId);
+ lines.push("READ-BACK: PASS; created synthetic invoice found.");out();
+ const cross=await fetch(base+"/business/data/sales-invoices?businessId="+encodeURIComponent(other),{headers:h});const cb=await cross.json().catch(()=>({}));
+ const leaked=Array.isArray(cb.records)&&cb.records.some(x=>String(x.id)===recordId||String(x.record?.id)===recordId);
+ if(leaked)throw Error("ISOLATION FAIL: synthetic invoice appeared in other business!");
+ if(cross.status===403||cross.status===404){lines.push("Other-business access: DENIED (HTTP "+cross.status+"); no cross-business record returned.");}
+ else if(cross.ok){lines.push("Other-business read: HTTP "+cross.status+"; synthetic invoice not present.");}
+ else {lines.push("Other-business check returned HTTP "+cross.status+"; no synthetic invoice was returned.");}
+ out();
+}catch(e){lines.push("TEST ISSUE: "+(e.message||String(e)));out();}
+finally{
+ if(created&&recordId&&token){
+  try{
+   const del=await fetch(base+"/business/data/sales-invoices?businessId="+encodeURIComponent(business),{method:"DELETE",headers:{"Authorization":"Bearer "+token,"X-MVIApps-Auth-Mode":"owner","Content-Type":"application/json"},body:JSON.stringify({businessId:business,id:recordId})});
+   const db=await del.json().catch(()=>({}));
+   if(del.ok&&db.deleted===true)lines.push("CLEANUP: PASS; synthetic record soft-deleted.");
+   else lines.push("CLEANUP NEEDS ATTENTION: HTTP "+del.status+" "+(db.code||db.error||"")+"; synthetic ID="+recordId);
+  }catch(e){lines.push("CLEANUP NEEDS ATTENTION; synthetic ID="+recordId+"; "+(e.message||String(e)));}
+ }
+ if(!created&&recordId)lines.push("No record was confirmed created.");
+ try{await signOut(auth)}catch{}
+ $("password").value="";out();btn.disabled=false;
+}
+};
+</script></body></html>
