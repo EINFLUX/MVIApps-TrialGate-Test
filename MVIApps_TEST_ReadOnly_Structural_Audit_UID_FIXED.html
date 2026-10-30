@@ -1,0 +1,39 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MVIApps TEST UID Audit</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f6fa;color:#172033;margin:0;padding:18px}.wrap{max-width:1080px;margin:auto;background:#fff;border:1px solid #dce2eb;border-radius:12px;padding:20px}h1{font-size:22px;margin:0 0 8px}.sub{color:#596579;line-height:1.5}.warn{background:#fff7e6;border:1px solid #f1d49a;padding:12px;border-radius:8px;margin:14px 0}button{background:#175cd3;color:white;border:0;border-radius:7px;padding:11px 18px;font-weight:bold;cursor:pointer}.status{font-weight:bold;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:16px 0}.tile{border:1px solid #dce2eb;border-radius:8px;padding:12px}.tile small{display:block;color:#657188;margin-bottom:7px}.tile b{font-size:22px}table{width:100%;border-collapse:collapse;margin:12px 0 20px;font-size:14px}th,td{padding:9px 8px;border-bottom:1px solid #e1e5ec;text-align:left}th{background:#f6f8fb}h2{font-size:17px;margin:22px 0 8px}.muted,footer{color:#657188;font-size:12px;line-height:1.5}.ok{color:#087a37}.bad{color:#b42318}@media(max-width:600px){body{padding:8px}.wrap{padding:13px}table{font-size:11px}th,td{padding:6px 3px}}
+</style></head><body><div class="wrap"><h1>MVIApps TEST — UID Scoped Read-only Structural Audit</h1>
+<div class="sub">Trial Gate की Firebase UID-based LocalStorage namespace में से केवल सक्रिय UID के records पढ़े जाएँगे। UID स्क्रीन पर नहीं दिखेगी।</div>
+<div class="warn"><b>केवल TEST website पर चलाएँ।</b> Production domain या रोज़मर्रा के MVIApps पर नहीं। यह पेज कोई रिकॉर्ड बदलता/बनाता/मिटाता नहीं है और Cloud request नहीं करता।</div>
+<button id="run" onclick="audit()">Run Read-only Audit</button><div id="status" class="status">Audit अभी नहीं चला है।</div><div id="out"></div>
+<footer>Read-only: LocalStorage key enumeration और getItem only. No setItem, removeItem, clear, IndexedDB, Firebase, Worker, D1, or Google Drive access.</footer></div>
+<script>
+const MARK='__mviapps_active_customer_uid';
+const TX=[['Sales Invoices','mviapps_sales_invoices'],['Sales Returns','mviapps_sales_returns'],['Purchase Invoices','mviapps_purchase_invoices'],['Purchase Returns','mviapps_purchase_returns'],['Payment-In','mviapps_payment_in'],['Payment-Out','mviapps_payment_out'],['Expenses','mviapps_expenses'],['Other Income','mviapps_other_income']];
+const IDF=['partyId','customerId','supplierId','party','customer','supplier'],NAMEF=['partyName','customerName','supplierName'];
+const empty=v=>v===undefined||v===null||String(v).trim()==='',norm=v=>String(v??'').trim().toLocaleLowerCase();
+function readKey(k){let raw=localStorage.getItem(k);if(raw===null)return{exists:false,valid:true,rows:[]};try{let v=JSON.parse(raw);return Array.isArray(v)?{exists:true,valid:true,rows:v}:{exists:true,valid:false,rows:[]}}catch(e){return{exists:true,valid:false,rows:[]}}}
+function tile(a,b){return `<div class="tile"><small>${a}</small><b>${b}</b></div>`}
+function audit(){const btn=document.getElementById('run'),s=document.getElementById('status'),o=document.getElementById('out');btn.disabled=true;
+try{
+ const uid=localStorage.getItem(MARK);
+ if(!uid||!/^[A-Za-z0-9_-]{1,160}$/.test(uid)){s.innerHTML='<span class="bad">Active TEST customer namespace not found.</span> पहले TEST MVIApps page में verified TEST account से login करें, फिर इसी browser और website origin पर Audit खोलें।';o.innerHTML='';return}
+ const prefix='__mviapps_customer_'+uid+'__',party=readKey(prefix+'mviapps_parties');
+ if(!party.valid)throw new Error('Active namespace में Party storage JSON array नहीं है। कोई बदलाव नहीं किया गया।');
+ const ps=party.rows,ids=new Map(),names=new Map();let noid=0,num=0,str=0,other=0;
+ for(const p of ps){if(!p||typeof p!=='object'){noid++;continue}if(empty(p.id))noid++;else{if(typeof p.id==='number')num++;else if(typeof p.id==='string')str++;else other++;ids.set(String(p.id),(ids.get(String(p.id))||0)+1)}let n=norm(p.name);if(n)names.set(n,(names.get(n)||0)+1)}
+ const dupid=[...ids.values()].filter(x=>x>1).length,dupname=[...names.values()].filter(x=>x>1).length;
+ let op=0,od={},dp=0,dd={},bp=0,bd={};
+ for(const p of ps){if(!p||typeof p!=='object')continue;if(Object.hasOwn(p,'opening')){op++;let t=p.opening===null?'null':Array.isArray(p.opening)?'array':typeof p.opening;od[t]=(od[t]||0)+1}if(Object.hasOwn(p,'openingDate')){dp++;let t=p.openingDate===null?'null':typeof p.openingDate;dd[t]=(dd[t]||0)+1}if(Object.hasOwn(p,'balanceType')){bp++;let t=p.balanceType===null?'null':typeof p.balanceType;bd[t]=(bd[t]||0)+1}}
+ const typ=o=>Object.entries(o).map(([k,v])=>k+': '+v).join(', ')||'कोई field मौजूद नहीं',rows=[];
+ for(const [label,key] of TX){const a=readKey(prefix+key);if(!a.valid){rows.push({label,count:'INVALID',id:0,name:0,missing:0,unresolved:0,amb:0,bad:true});continue}let id=0,name=0,missing=0,unresolved=0,amb=0;
+ for(const r of a.rows){if(!r||typeof r!=='object'){unresolved++;continue}let matched=false,had=false;
+ for(const f of IDF){if(!Object.hasOwn(r,f)||empty(r[f]))continue;had=true;let v=String(r[f]),n=norm(r[f]);if(ids.has(v)){id++;matched=true;break}if(names.has(n)){if(names.get(n)>1)amb++;else name++;matched=true;break}}
+ if(!matched)for(const f of NAMEF){if(!Object.hasOwn(r,f)||empty(r[f]))continue;had=true;let n=norm(r[f]);if(names.has(n)){if(names.get(n)>1)amb++;else name++;matched=true;break}}
+ if(!matched){if(had)unresolved++;else missing++}}
+ rows.push({label,count:a.rows.length,id,name,missing,unresolved,amb,bad:false})}
+ const total=rows.reduce((a,r)=>a+(r.bad?0:r.count),0),nonempty=ps.length+total>0;
+ let h=`<div class="grid">${tile('Total Parties',ps.length)}${tile('Party IDs missing',noid)}${tile('Duplicate Party IDs',dupid)}${tile('Duplicate Party names',dupname)}${tile('Numeric / String IDs',num+' / '+str)}${tile('Total transaction rows',total)}</div><h2>Party Master Structure</h2><table><tr><th>Check</th><th>Count / Type</th></tr><tr><td>Active namespace Party storage</td><td>${party.exists?'Present':'Not present (0 records)'}</td></tr><tr><td>Other ID types</td><td>${other}</td></tr><tr><td>Opening field present</td><td>${op} — ${typ(od)}</td></tr><tr><td>Opening Date field present</td><td>${dp} — ${typ(dd)}</td></tr><tr><td>Balance Type field present</td><td>${bp} — ${typ(bd)}</td></tr></table><h2>Transaction Reference Summary</h2><div class="muted">ID/name matches are record counts, not financial totals. Ambiguous means the matched Party name occurs more than once.</div><table><thead><tr><th>Category</th><th>Rows</th><th>ID match</th><th>Name match</th><th>Missing ref</th><th>Unresolved</th><th>Ambiguous</th></tr></thead><tbody>`;
+ for(const r of rows)h+=`<tr><td>${r.label}${r.bad?' (Invalid storage)':''}</td><td>${r.count}</td><td>${r.id}</td><td>${r.name}</td><td>${r.missing}</td><td>${r.unresolved}</td><td>${r.amb}</td></tr>`;
+ h+='</tbody></table><div class="warn"><b>Interpretation:</b> '+(nonempty?'Active TEST UID namespace में records मिले। यह structural audit है, migration approval नहीं।':'इस active TEST UID namespace में representative records नहीं मिले। Compatibility NOT PROVEN — इसे PASS न मानें.')+'</div>';o.innerHTML=h;s.innerHTML='<span class="ok">Read-only audit complete.</span> कोई data change नहीं किया गया।';
+}catch(e){s.innerHTML='<span class="bad">Audit stopped:</span> '+String(e.message||e);o.innerHTML=''}finally{btn.disabled=false}}
+</script></body></html>
