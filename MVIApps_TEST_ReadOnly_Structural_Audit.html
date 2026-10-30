@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MVIApps TEST — Read-only Structural Audit</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#172033;background:#f4f6fa}
+body{margin:0;padding:22px}.wrap{max-width:1050px;margin:auto;background:#fff;border:1px solid #dce2eb;border-radius:12px;padding:22px}
+h1{font-size:23px;margin:0 0 8px}.sub{color:#596579;line-height:1.5}.warning{background:#fff7e6;border:1px solid #f1d49a;padding:12px;border-radius:8px;margin:16px 0;color:#694b13}
+button{background:#175cd3;color:white;border:0;border-radius:7px;padding:11px 18px;font-weight:700;cursor:pointer}button:disabled{opacity:.5}
+.status{margin:14px 0;font-weight:700}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px;margin:16px 0}
+.tile{border:1px solid #dce2eb;border-radius:8px;padding:12px}.tile small{display:block;color:#657188;margin-bottom:7px}.tile b{font-size:23px}
+table{width:100%;border-collapse:collapse;margin:12px 0 20px;font-size:14px}th,td{padding:9px 8px;border-bottom:1px solid #e1e5ec;text-align:left}th{background:#f6f8fb}
+h2{font-size:17px;margin:22px 0 8px}.muted{color:#657188;font-size:12px}.ok{color:#087a37}.bad{color:#b42318}.neutral{color:#8a5a00}
+footer{margin-top:18px;color:#657188;font-size:12px;line-height:1.5}
+@media(max-width:600px){body{padding:8px}.wrap{padding:14px}table{font-size:12px}th,td{padding:7px 4px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MVIApps TEST — Read-only Structural Audit</h1>
+<div class="sub">यह पेज केवल इसी browser origin के LocalStorage में मौजूद TEST डेटा की संरचना पढ़ता है। यह कोई रिकॉर्ड बदलता, बनाता, मिटाता या Cloud पर भेजता नहीं है।</div>
+<div class="warning"><b>जरूरी:</b> इस HTML को उसी TEST GitHub Pages website/origin पर खोलें जहाँ TEST MVIApps copy का डेटा रखा है। इसे Production app या रोज़मर्रा वाले MVIApps domain पर न खोलें। यह पेज केवल counts दिखाएगा; Party/Invoice की निजी जानकारी नहीं दिखाएगा।</div>
+<button id="runBtn" onclick="runAudit()">Run Read-only Audit</button>
+<div id="status" class="status">Audit अभी नहीं चला है।</div>
+<div id="results"></div>
+<footer>
+Safety: केवल localStorage.getItem() और JSON parsing. कोई setItem/removeItem/clear, IndexedDB access, Firebase login, Worker request या Google Drive operation नहीं है। परिणाम इसी पेज पर स्थानीय रूप से तैयार होता है।
+</footer>
+</div>
+<script>
+const PARTY_KEY='mviapps_parties';
+const TX=[
+ ['Sales Invoices','mviapps_sales_invoices'],
+ ['Sales Returns','mviapps_sales_returns'],
+ ['Purchase Invoices','mviapps_purchase_invoices'],
+ ['Purchase Returns','mviapps_purchase_returns'],
+ ['Payment-In','mviapps_payment_in'],
+ ['Payment-Out','mviapps_payment_out'],
+ ['Expenses','mviapps_expenses'],
+ ['Other Income','mviapps_other_income']
+];
+const ID_FIELDS=['partyId','customerId','supplierId','party','customer','supplier'];
+const NAME_FIELDS=['partyName','customerName','supplierName'];
+const norm=v=>String(v??'').trim().toLocaleLowerCase();
+function readArray(key){
+ const raw=localStorage.getItem(key);
+ if(raw===null)return {exists:false,valid:true,rows:[]};
+ try{const value=JSON.parse(raw);return Array.isArray(value)?{exists:true,valid:true,rows:value}:{exists:true,valid:false,rows:[]};}
+ catch(e){return {exists:true,valid:false,rows:[]};}
+}
+function isEmpty(v){return v===undefined||v===null||String(v).trim()==='';}
+function runAudit(){
+ const btn=document.getElementById('runBtn'),status=document.getElementById('status'),out=document.getElementById('results');
+ btn.disabled=true; status.textContent='Audit चल रहा है…';
+ try{
+  const p=readArray(PARTY_KEY);
+  if(!p.valid)throw new Error('Party storage मौजूद है लेकिन JSON array के रूप में पढ़ा नहीं जा सका। कोई बदलाव नहीं किया गया।');
+  const parties=p.rows;
+  const idMap=new Map(), nameMap=new Map();
+  let missingIds=0, numericIds=0,stringIds=0,otherIds=0;
+  for(const x of parties){
+   if(!x||typeof x!=='object'){missingIds++;continue;}
+   if(isEmpty(x.id))missingIds++;
+   else{
+    if(typeof x.id==='number')numericIds++;else if(typeof x.id==='string')stringIds++;else otherIds++;
+    const k=String(x.id);idMap.set(k,(idMap.get(k)||0)+1);
+   }
+   const n=norm(x.name);if(n)nameMap.set(n,(nameMap.get(n)||0)+1);
+  }
+  const duplicateIds=[...idMap.values()].filter(n=>n>1).length;
+  const duplicateNames=[...nameMap.values()].filter(n=>n>1).length;
+  let openingPresent=0,openingTypes={},datePresent=0,dateTypes={},balancePresent=0,balanceTypes={};
+  for(const x of parties){
+   if(!x||typeof x!=='object')continue;
+   if(Object.prototype.hasOwnProperty.call(x,'opening')){openingPresent++;const t=x.opening===null?'null':Array.isArray(x.opening)?'array':typeof x.opening;openingTypes[t]=(openingTypes[t]||0)+1;}
+   if(Object.prototype.hasOwnProperty.call(x,'openingDate')){datePresent++;const t=x.openingDate===null?'null':typeof x.openingDate;dateTypes[t]=(dateTypes[t]||0)+1;}
+   if(Object.prototype.hasOwnProperty.call(x,'balanceType')){balancePresent++;const t=x.balanceType===null?'null':typeof x.balanceType;balanceTypes[t]=(balanceTypes[t]||0)+1;}
+  }
+  const rows=[];
+  for(const [label,key] of TX){
+   const a=readArray(key);
+   if(!a.valid){rows.push({label,key,count:'INVALID',id:0,name:0,missing:0,unresolved:0,ambiguous:0,invalid:true});continue;}
+   let id=0,name=0,missing=0,unresolved=0,ambiguous=0;
+   for(const r of a.rows){
+    if(!r||typeof r!=='object'){unresolved++;continue;}
+    let found=false,hadValue=false,matched=false;
+    for(const f of ID_FIELDS){
+     if(!Object.prototype.hasOwnProperty.call(r,f)||isEmpty(r[f]))continue;
+     hadValue=true;found=true;const val=String(r[f]);
+     if(idMap.has(val)){id++;matched=true;break;}
+     if(nameMap.has(norm(r[f]))){if(nameMap.get(norm(r[f]))>1)ambiguous++;else name++;matched=true;break;}
+    }
+    if(!matched){
+     for(const f of NAME_FIELDS){
+      if(!Object.prototype.hasOwnProperty.call(r,f)||isEmpty(r[f]))continue;
+      hadValue=true;found=true;const n=norm(r[f]);
+      if(nameMap.has(n)){if(nameMap.get(n)>1)ambiguous++;else name++;matched=true;break;}
+     }
+    }
+    if(!matched){if(!hadValue)missing++;else unresolved++;}
+   }
+   rows.push({label,key,count:a.rows.length,id,name,missing,unresolved,ambiguous,invalid:false});
+  }
+  const totalTx=rows.reduce((s,r)=>s+(r.invalid?0:r.count),0);
+  const typeSummary=o=>Object.entries(o).map(([k,v])=>k+': '+v).join(', ')||'कोई field मौजूद नहीं';
+  const tile=(label,value)=>`<div class="tile"><small>${label}</small><b>${value}</b></div>`;
+  let t=`<div class="grid">
+  ${tile('Total Parties',parties.length)}
+  ${tile('Party IDs missing',missingIds)}
+  ${tile('Duplicate Party IDs',duplicateIds)}
+  ${tile('Duplicate Party names',duplicateNames)}
+  ${tile('Numeric / String IDs',numericIds+' / '+stringIds)}
+  ${tile('Total transaction rows',totalTx)}
+  </div>
+  <h2>Party Master Structure</h2>
+  <table><tbody>
+  <tr><th>Check</th><th>Count / Type</th></tr>
+  <tr><td>Party storage</td><td>${p.exists?'Present':'Not present (0 records)'}</td></tr>
+  <tr><td>Other ID types</td><td>${otherIds}</td></tr>
+  <tr><td>Opening field present</td><td>${openingPresent} — ${typeSummary(openingTypes)}</td></tr>
+  <tr><td>Opening Date field present</td><td>${datePresent} — ${typeSummary(dateTypes)}</td></tr>
+  <tr><td>Balance Type field present</td><td>${balancePresent} — ${typeSummary(balanceTypes)}</td></tr>
+  </tbody></table>
+  <h2>Transaction Reference Summary</h2>
+  <div class="muted">ID/name counts are transaction records with at least one reference matched. Counts are not financial totals. Ambiguous means a name matched multiple Parties.</div>
+  <table><thead><tr><th>Category</th><th>Rows</th><th>ID match</th><th>Name match</th><th>Missing ref</th><th>Unresolved</th><th>Ambiguous</th></tr></thead><tbody>`;
+  for(const r of rows)t+=`<tr><td>${r.label}${r.invalid?' <span class="bad">Invalid storage</span>':''}</td><td>${r.count}</td><td>${r.id}</td><td>${r.name}</td><td>${r.missing}</td><td>${r.unresolved}</td><td>${r.ambiguous}</td></tr>`;
+  t+=`</tbody></table>`;
+  const nonEmpty=parties.length>0||totalTx>0;
+  const issues=missingIds+duplicateIds+duplicateNames+rows.reduce((s,r)=>s+(r.invalid?1:r.unresolved+r.ambiguous),0);
+  t+=`<div class="warning"><b>Audit interpretation:</b> ${nonEmpty?'TEST origin में records मिले हैं। यह केवल structural audit है; कोई migration approval नहीं है.':'इस TEST origin में representative records नहीं मिले। Compatibility NOT PROVEN — इसे PASS न मानें.'} ${issues?'कुछ missing/duplicate/ambiguous/unresolved स्थितियाँ review के लिए हैं.':'इस सीमित summary में कोई counted ID/name issue नहीं मिला; इससे पूर्ण data integrity प्रमाणित नहीं होती.'}</div>`;
+  out.innerHTML=t;
+  status.innerHTML='<span class="ok">Read-only audit complete.</span> कोई data change नहीं किया गया।';
+ }catch(e){status.innerHTML='<span class="bad">Audit stopped:</span> '+String(e.message||e);out.innerHTML='';}
+ finally{btn.disabled=false;}
+}
+</script>
+</body>
+</html>
