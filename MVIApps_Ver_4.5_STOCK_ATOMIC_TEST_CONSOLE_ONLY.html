@@ -10090,7 +10090,7 @@ async function runMviShadowCompare(){
     await reload(user);
     if(!auth.currentUser||!auth.currentUser.emailVerified)throw new Error('Verified email is required. No data was changed.');
     const token=await auth.currentUser.getIdToken(true);
-    const businessResponse=await fetch(API+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
+    const businessResponse=await fetch(bridge.api+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
     const businessResult=await businessResponse.json().catch(()=>({}));
     if(!businessResponse.ok||businessResult.authenticated!==true||businessResult.accessGranted!==true||!businessResult.business?.id)throw new Error('Authorized business lookup failed (HTTP '+businessResponse.status+'). No comparison data was changed.');
     const businessId=String(businessResult.business.id);
@@ -10135,7 +10135,7 @@ async function runMviPartyPageCloudPreview(){
     await reload(user);
     if(!auth.currentUser||!auth.currentUser.emailVerified)throw new Error('Verified TEST email is required.');
     const token=await auth.currentUser.getIdToken(true);
-    const businessResponse=await fetch(API+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
+    const businessResponse=await fetch(bridge.api+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
     const businessResult=await businessResponse.json().catch(()=>({}));
     if(!businessResponse.ok||businessResult.authenticated!==true||businessResult.accessGranted!==true||!businessResult.business?.id)throw new Error('Authorized TEST Business lookup failed (HTTP '+businessResponse.status+').');
     const entries=await fetchMviCloudRecords('parties',String(businessResult.business.id),token);
@@ -10189,7 +10189,7 @@ async function runMviPartyCloudAdapterPreview(){
     await reload(user);
     if(!auth.currentUser||!auth.currentUser.emailVerified)throw new Error('Verified TEST email is required. No data was changed.');
     const token=await auth.currentUser.getIdToken(true);
-    const businessResponse=await fetch(API+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
+    const businessResponse=await fetch(bridge.api+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
     const businessResult=await businessResponse.json().catch(()=>({}));
     if(!businessResponse.ok||businessResult.authenticated!==true||businessResult.accessGranted!==true||!businessResult.business?.id)throw new Error('Authorized TEST Business lookup failed (HTTP '+businessResponse.status+').');
     const businessId=String(businessResult.business.id);
@@ -10244,7 +10244,7 @@ async function runMviPartyFieldCompare(){
     await reload(user);
     if(!auth.currentUser||!auth.currentUser.emailVerified)throw new Error('Verified TEST email is required. No data was changed.');
     const token=await auth.currentUser.getIdToken(true);
-    const businessResponse=await fetch(API+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
+    const businessResponse=await fetch(bridge.api+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
     const businessResult=await businessResponse.json().catch(()=>({}));
     if(!businessResponse.ok||businessResult.authenticated!==true||businessResult.accessGranted!==true||!businessResult.business?.id)throw new Error('Authorized TEST business lookup failed (HTTP '+businessResponse.status+').');
     const businessId=String(businessResult.business.id);
@@ -10309,7 +10309,7 @@ async function runMviSyntheticPartyFieldRoundTrip(){
     await reload(user);
     if(!auth.currentUser||!auth.currentUser.emailVerified)throw new Error('Verified TEST email is required.');
     token=await auth.currentUser.getIdToken(true);
-    const businessResponse=await fetch(API+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
+    const businessResponse=await fetch(bridge.api+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
     const businessResult=await businessResponse.json().catch(()=>({}));
     if(!businessResponse.ok||businessResult.authenticated!==true||businessResult.accessGranted!==true||!businessResult.business?.id)throw new Error('Authorized TEST business lookup failed (HTTP '+businessResponse.status+').');
     businessId=String(businessResult.business.id);lines.push('Verified TEST account + authorized Business lookup: PASS (details hidden).');
@@ -10373,7 +10373,7 @@ async function runMviLocalCloudPartyMappingProbe(){
     await reload(user);
     if(!auth.currentUser||!auth.currentUser.emailVerified)throw new Error('Verified TEST email is required.');
     token=await auth.currentUser.getIdToken(true);
-    const br=await fetch(API+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
+    const br=await fetch(bridge.api+'/business',{method:'GET',headers:{Authorization:'Bearer '+token}});
     const bj=await br.json().catch(()=>({}));
     if(!br.ok||bj.authenticated!==true||bj.accessGranted!==true||!bj.business?.id)throw new Error('Authorized TEST business lookup failed (HTTP '+br.status+').');
     businessId=String(bj.business.id);lines.push('Verified TEST account + authorized Business lookup: PASS (details hidden).');
@@ -10473,6 +10473,17 @@ onAuthStateChanged(auth,user=>{if(user){inspectUser(user).catch(e=>{lockGate();m
 // Recheck server access when the page returns to the foreground. Do not modify the existing Drive Sync module.
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&auth.currentUser){inspectUser(auth.currentUser).catch(()=>lockGate());}});
 window.addEventListener('online',()=>{if(auth.currentUser){lockGate();inspectUser(auth.currentUser).catch(()=>lockGate());}});
+
+// TEST ONLY: expose a minimal read-only Firebase auth/API bridge to the isolated Atomic console.
+window.MVIAPPS_TEST_ATOMIC_BRIDGE = Object.freeze({
+  api: API,
+  currentUser: () => auth.currentUser,
+  refreshUser: async () => {
+    if (!auth.currentUser) return null;
+    await reload(auth.currentUser);
+    return auth.currentUser;
+  }
+});
 </script>
   </section>
 </div>
@@ -10775,14 +10786,16 @@ document.addEventListener('keydown',function(e){
   async function send(req,isRetry){
     if(busy)return;busy=true;$('mviStockSend').disabled=true;$('mviStockRetry').disabled=true;
     try{
-      const user=auth.currentUser;if(!user)throw new Error('Sign in to the verified TEST account first.');
-      await reload(user);if(!auth.currentUser||!auth.currentUser.emailVerified)throw new Error('Verified TEST email is required.');
-      const token=await auth.currentUser.getIdToken(true);
-      const br=await fetch(API+'/business',{headers:{Authorization:'Bearer '+token}});
+      const bridge=window.MVIAPPS_TEST_ATOMIC_BRIDGE;
+      if(!bridge)throw new Error('TEST authentication bridge is not ready. Reload the page once.');
+      const user=await bridge.refreshUser();if(!user)throw new Error('Sign in to the verified TEST account first.');
+      if(!user.emailVerified)throw new Error('Verified TEST email is required.');
+      const token=await user.getIdToken(true);
+      const br=await fetch(bridge.api+'/business',{headers:{Authorization:'Bearer '+token}});
       const bj=await br.json().catch(()=>({}));
       if(!br.ok||bj.authenticated!==true||bj.accessGranted!==true||!bj.business?.id)throw new Error('TEST Business authorization failed (HTTP '+br.status+').');
       const businessId=String(bj.business.id);
-      const url=new URL(API+'/business/data/'+req.route);url.searchParams.set('businessId',businessId);
+      const url=new URL(bridge.api+'/business/data/'+req.route);url.searchParams.set('businessId',businessId);
       const headers={Authorization:'Bearer '+token,'Content-Type':'application/json','X-MVIApps-Auth-Mode':'owner'};
       const response=await fetch(url.toString(),{method:req.method,headers, ...(req.method==='GET'?{}:{body:JSON.stringify(req.body)})});
       const payload=await response.json().catch(async()=>({raw:await response.text().catch(()=> '')}));
