@@ -1880,7 +1880,7 @@ body.appearance-compact .card,body.appearance-compact .panel{padding:16px}
 <style id="mviapps-v22-cloud-owner-gate-style">
  body.mviapps-v22-cloud-gate-pending > .app{visibility:hidden!important;pointer-events:none!important}
  #mviappsV22OwnerGate{position:fixed;inset:0;z-index:1000005;display:flex;align-items:center;justify-content:center;padding:18px;background:linear-gradient(135deg,#eef3ff,#f8fafc);font-family:Inter,Segoe UI,Arial,sans-serif}
- #mviappsV22OwnerGate .card{width:min(440px,96vw);background:#fff;border:1px solid #dfe4ea;border-radius:16px;box-shadow:0 18px 50px #0f172a25;padding:24px}
+ #mviappsV22OwnerGate .card{width:min(440px,96vw);max-height:calc(100vh - 36px);overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;background:#fff;border:1px solid #dfe4ea;border-radius:16px;box-shadow:0 18px 50px #0f172a25;padding:24px}
  #mviappsV22OwnerGate h2{margin:0 0 8px;text-align:center;color:#172554}
  #mviappsV22OwnerGate p{font-size:12px;line-height:1.5;color:#64748b;text-align:center}
  #mviappsV22OwnerGate label{display:block;font-size:12px;font-weight:700;margin:12px 0 5px}
@@ -1967,7 +1967,7 @@ body.appearance-compact .card,body.appearance-compact .panel{padding:16px}
       <button type="button" id="mviappsV44RunItemAudit">Run Read-Only Stock + Reference Audit</button>
       <div id="mviappsV44AuditOut" class="msg" style="display:none;margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere"></div>
     </div>
-    <div class="msg">Staff has only the permissions granted by the Owner. This TEST workspace exposes separate Cloud audits. The normal Owner local-data screens are not unlocked for Staff.</div>
+    <div class="msg">Staff has only the permissions granted by the Owner. The normal Owner local-data screens are not unlocked for Staff.</div> This TEST workspace exposes separate Cloud audits. The normal Owner local-data screens are not unlocked for Staff.</div>
     <button type="button" id="mviappsV25StaffLogout" style="background:#475569">End Staff Session</button>
    </div>
   </section>
