@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MVIApps — TEST Consolidated Read-only Audit (Response Fix)</title>
+<title>MVIApps — TEST Consolidated Read-only Audit (Adaptive Pagination)</title>
 <style>
 :root{font-family:Arial,sans-serif;color:#172033;background:#f3f6fb}
 body{margin:0;padding:18px}main{max-width:1080px;margin:auto}
@@ -23,8 +23,8 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:8px;borde
 </style></head>
 <body><main>
 <section class="card">
-<h1>MVIApps — TEST Consolidated Read-only Audit (Response Fix)</h1>
-<p>Response-format corrected: checks the deployed TEST Worker’s actual JSON contract. One TEST Owner login; no writes.</p>
+<h1>MVIApps — TEST Consolidated Read-only Audit (Adaptive Pagination)</h1>
+<p>Adaptive pagination: follows cursor or offset format returned by each TEST API. One TEST Owner login; no writes.</p>
 <div class="warn"><b>READ-ONLY SAFETY:</b> Firebase sign-in plus HTTP GET only. No create, edit, delete, archive, merge, upload, stock mutation, or database write. Local data is read using localStorage.getItem only. Use only the isolated TEST Worker and TEST Firebase account.</div>
 <div class="grid">
 <div><label for="worker">TEST Worker URL</label><input id="worker" value="https://mviapps-stage4-validation-api.mvi2k21.workers.dev"></div>
@@ -39,7 +39,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:8px;borde
 <h2>Local ↔ Cloud ID Comparison</h2>
 <table><thead><tr><th>Collection</th><th>Local</th><th>Cloud</th><th>Matching IDs</th><th>Local-only</th><th>Cloud-only</th><th>Status</th></tr></thead>
 <tbody id="compareRows"><tr><td colspan="7" class="muted">Party result already confirmed 6/6 in the previous run. Item comparison pending.</td></tr></tbody></table>
-<p class="note">Party comparison already passed 6/6 earlier and is intentionally not repeated. This run compares the known Local Storage array <code>mviapps_items</code> only. Party 6/6 result is retained; it is not rerun.</p>
+<p class="note">Party comparison already passed 6/6 earlier and is intentionally not repeated. This run compares the known Local Storage array <code>mviapps_items</code> only. Party 6/6 result is retained; it is not rerun. The earlier Item result (1 local / 5 cloud / 0 matching IDs) is a comparison difference, not a write failure; this page will show the comparison again so it can be investigated without changing either side.</p>
 </section>
 <section class="card">
 <h2>Cloud Collection Read Checks</h2>
@@ -106,15 +106,56 @@ async function fetchCursorCollection(path,recordType,businessId,token){
  }while(cursor);
  return {records:all,pages};
 }
-async function fetchSimpleStock(path,recordType,businessId,token){
- const u=new URL(root()+path);u.searchParams.set("businessId",businessId);
- const res=await fetch(u.toString(),{method:"GET",cache:"no-store",headers:headers(token)});
- const d=await res.json().catch(()=>({}));
- if(!res.ok)throw new Error(path+" HTTP "+res.status+" "+(d.code||d.error||"unknown"));
- if(d.businessId!==businessId||d.recordType!==recordType||!Array.isArray(d.records)||
-    !Number.isInteger(d.limit)||!Number.isInteger(d.offset)||d.count!==d.records.length)
-  throw new Error(path+" returned unexpected read-only response; keys="+Object.keys(d).join(",")+"; safely stopped.");
- return {records:d.records,pages:1};
+async function fetchAdaptiveCollection(path,recordType,businessId,token){
+ const all=[];let cursor=null,offset=0,pages=0,mode=null,limit=null;
+ while(true){
+  const u=new URL(root()+path);
+  u.searchParams.set("businessId",businessId);
+  if(mode==="cursor"||mode===null){
+   if(cursor)u.searchParams.set("cursor",cursor);
+  }
+  if(mode==="offset") {
+   u.searchParams.set("offset",String(offset));
+   if(limit)u.searchParams.set("limit",String(limit));
+  }
+  const res=await fetch(u.toString(),{method:"GET",cache:"no-store",headers:headers(token)});
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(path+" HTTP "+res.status+" "+(d.code||d.error||"unknown"));
+  if(!Array.isArray(d.records))throw new Error(path+" returned no records array; keys="+Object.keys(d).join(","));
+  if(mode===null){
+   if(typeof d.nextCursor==="string"||d.nextCursor===null){
+    if(d.businessId!==businessId||d.recordType!==recordType)
+     throw new Error(path+" cursor response business/type scope mismatch; safely stopped.");
+    mode="cursor";cursor=d.nextCursor;
+   }else if(Number.isInteger(d.limit)&&Number.isInteger(d.offset)){
+    if(d.offset!==offset)throw new Error(path+" initial offset mismatch.");
+    if(d.businessId!==undefined&&d.businessId!==businessId)throw new Error(path+" business scope mismatch.");
+    if(d.recordType!==undefined&&d.recordType!==recordType)throw new Error(path+" record type mismatch.");
+    mode="offset";limit=d.limit;offset=d.offset;
+   }else{
+    throw new Error(path+" pagination format not recognized; keys="+Object.keys(d).join(","));
+   }
+  }else if(mode==="cursor"){
+   if(!(typeof d.nextCursor==="string"||d.nextCursor===null)||
+      d.businessId!==businessId||d.recordType!==recordType)
+    throw new Error(path+" cursor pagination/scope changed during read.");
+   cursor=d.nextCursor;
+  }else{
+   if(!Number.isInteger(d.limit)||!Number.isInteger(d.offset)||d.offset!==offset)
+    throw new Error(path+" offset pagination mismatch; expected offset "+offset+".");
+   limit=d.limit;
+  }
+  all.push(...d.records);
+  pages++;
+  if(pages>500)throw new Error(path+" pagination safety limit exceeded.");
+  if(mode==="cursor"){
+   if(!cursor)break;
+  }else{
+   if(d.records.length<limit)break;
+   offset+=limit;
+  }
+ }
+ return {records:all,pages,mode};
 }
 function rowCompare(label,x){
  $("compareRows").insertAdjacentHTML("beforeend",`<tr><td>${esc(label)}</td><td>${x.local}</td><td>${x.cloud}</td><td>${x.match}</td><td>${x.localOnly}</td><td>${x.cloudOnly}</td><td class="${x.localOnly||x.cloudOnly?'bad':'good'}">${x.localOnly||x.cloudOnly?'DIFFERENCE':'MATCH'}</td></tr>`);
@@ -165,7 +206,7 @@ $("run").onclick=async()=>{
   ];
   for(const [path,type,label] of cursorSpecs){
    log("GET "+label+"…");
-   try{const x=await fetchCursorCollection(path,type,bid,token);rowCloud(label,x);log("PASS "+label+": "+x.records.length+" records.");}
+   try{const x=await fetchAdaptiveCollection(path,type,bid,token);rowCloud(label,x);log("PASS "+label+": "+x.records.length+" records ("+x.mode+" pagination, "+x.pages+" page(s)).");}
    catch(e){$("cloudRows").insertAdjacentHTML("beforeend",`<tr><td>${esc(label)}</td><td>—</td><td>—</td><td class="bad">FAIL: ${esc(e.message)}</td></tr>`);log(label+" failed; continuing: "+e.message);}
   }
   const stockSpecs=[
@@ -175,7 +216,7 @@ $("run").onclick=async()=>{
   ];
   for(const [path,type,label] of stockSpecs){
    log("GET "+label+"…");
-   try{const x=await fetchSimpleStock(path,type,bid,token);rowCloud(label,x);log("PASS "+label+": "+x.records.length+" records.");}
+   try{const x=await fetchAdaptiveCollection(path,type,bid,token);rowCloud(label,x);log("PASS "+label+": "+x.records.length+" records ("+x.mode+" pagination, "+x.pages+" page(s)).");}
    catch(e){$("cloudRows").insertAdjacentHTML("beforeend",`<tr><td>${esc(label)}</td><td>—</td><td>—</td><td class="bad">FAIL: ${esc(e.message)}</td></tr>`);log(label+" failed; continuing: "+e.message);}
   }
   log("PASS — consolidated read-only audit completed. No Cloud writes or Local Storage changes were made.");
