@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MVIApps — TEST Party Read-only Comparison (Corrected)</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#172033;background:#f3f6fb}
+body{margin:0;padding:22px}
+main{max-width:900px;margin:auto}
+.card{background:#fff;border:1px solid #d9e1ee;border-radius:13px;padding:20px;margin:0 0 16px;box-shadow:0 3px 12px #1522380b}
+h1{font-size:23px;margin:0 0 8px}h2{font-size:17px;margin:0 0 12px}
+p{line-height:1.5;color:#536176}
+.warning{background:#fff7e8;border:1px solid #f4c978;border-radius:9px;padding:12px;color:#74470b;font-size:13px;line-height:1.5}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 5px}
+input{width:100%;box-sizing:border-box;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px}
+button{border:0;border-radius:8px;background:#155eef;color:#fff;padding:11px 16px;font-weight:700;cursor:pointer;margin:12px 8px 0 0}
+button.secondary{background:#475569}button:disabled{opacity:.5;cursor:not-allowed}
+#status{white-space:pre-wrap;background:#101827;color:#e5edf8;padding:14px;border-radius:9px;font:12px/1.6 ui-monospace,monospace;min-height:72px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.stat{background:#f4f7fc;border:1px solid #e1e8f2;border-radius:9px;padding:12px}
+.stat b{display:block;font-size:23px;margin-top:6px}
+.small{font-size:12px;color:#64748b}
+@media(max-width:650px){body{padding:10px}.grid,.stats{grid-template-columns:1fr 1fr}.card{padding:14px}}
+</style>
+</head>
+<body>
+<main>
+<section class="card">
+<h1>MVIApps — TEST Party Read-only Comparison (Corrected)</h1>
+<p>Compares the current browser's local <code>mviapps_parties</code> list with the authorized TEST Business Party records.</p>
+<div class="warning"><b>READ-ONLY SAFETY:</b> This page performs Firebase sign-in and HTTP GET requests only. It does not create, edit, delete, merge, or upload any Party. It does not write to Local Storage, IndexedDB, or Cloud D1. Use only the TEST account and TEST Worker.</div>
+<div class="grid">
+<div>
+<label for="worker">TEST Worker URL</label>
+<input id="worker" value="https://mviapps-stage4-validation-api.mvi2k21.workers.dev">
+</div>
+<div>
+<label for="email">TEST Owner Email</label>
+<input id="email" type="email" value="einfluxonline@gmail.com" autocomplete="username">
+</div>
+<div>
+<label for="password">TEST Owner Password</label>
+<input id="password" type="password" autocomplete="current-password" placeholder="Enter TEST account password">
+</div>
+<div>
+<label for="businessId">Business ID (auto-filled after verification)</label>
+<input id="businessId" readonly placeholder="Not verified yet">
+</div>
+</div>
+<button id="run">Sign in & Compare Parties (READ-ONLY)</button>
+<button id="clear" class="secondary">Clear Results / Sign out</button>
+<p class="small">Firebase authentication is kept in memory for this page session only. Password is cleared after sign-in. No credentials are saved by this page.</p>
+</section>
+<section class="card">
+<h2>Comparison Results</h2>
+<div class="stats">
+<div class="stat">Local Parties<b id="localCount">—</b></div>
+<div class="stat">Cloud Parties<b id="cloudCount">—</b></div>
+<div class="stat">Matching IDs<b id="matched">—</b></div>
+<div class="stat">ID Conflicts<b id="conflicts">—</b></div>
+</div>
+<p id="details" class="small">No comparison has been run.</p>
+<div id="status">Ready. No data has been changed.</div>
+</section>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, setPersistence, inMemoryPersistence, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDF6iSPn_FLpvJFOHsNvfiBzvkUO57Q8PA",
+  authDomain: "mviapps-test-auth.firebaseapp.com",
+  projectId: "mviapps-test-auth",
+  storageBucket: "mviapps-test-auth.firebasestorage.app",
+  messagingSenderId: "490578513154",
+  appId: "1:490578513154:web:2eb4b08d71dadeacaf061b"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+await setPersistence(auth, inMemoryPersistence);
+
+const $ = id => document.getElementById(id);
+const status = text => $("status").textContent = text;
+const setStats = (l,c,m,x) => {
+  $("localCount").textContent = l;
+  $("cloudCount").textContent = c;
+  $("matched").textContent = m;
+  $("conflicts").textContent = x;
+};
+const normalizeUrl = value => value.trim().replace(/\/+$/,"");
+const localPartiesReadOnly = () => {
+  const raw = localStorage.getItem("mviapps_parties");
+  if (raw === null) return [];
+  const value = JSON.parse(raw);
+  if (!Array.isArray(value)) throw new Error("Local mviapps_parties is not an array. Stopped without changing it.");
+  return value;
+};
+async function apiGet(path, token, businessId) {
+  const u = new URL(normalizeUrl($("worker").value) + path);
+  if (businessId) u.searchParams.set("businessId", businessId);
+  const res = await fetch(u.toString(), {
+    method:"GET",
+    cache:"no-store",
+    headers:{
+      "Authorization":"Bearer " + token,
+      "X-MVIApps-Auth-Mode":"owner"
+    }
+  });
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) throw new Error("GET " + path + " returned HTTP " + res.status + " (" + (data.code || data.error || "unknown") + ")");
+  return data;
+}
+async function fetchAllParties(token,businessId) {
+  const all=[]; const limit=200; let offset=0; let pages=0;
+  while(true) {
+    const u=new URL(normalizeUrl($("worker").value)+"/business/data/parties");
+    u.searchParams.set("businessId",businessId);
+    u.searchParams.set("limit",String(limit));
+    u.searchParams.set("offset",String(offset));
+    const res=await fetch(u.toString(),{
+      method:"GET",cache:"no-store",
+      headers:{"Authorization":"Bearer "+token,"X-MVIApps-Auth-Mode":"owner"}
+    });
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error("Party GET returned HTTP "+res.status+" ("+(d.code||d.error||"unknown")+")");
+    // Worker response contract: { records, limit, offset, count }.
+    if(!Array.isArray(d.records) || d.limit!==limit || d.offset!==offset ||
+       d.count!==d.records.length)
+      throw new Error("Party API returned an unexpected pagination response. Stopped safely.");
+    all.push(...d.records);
+    if(d.count<limit) break;
+    offset+=limit;
+    if(++pages>5000) throw new Error("Pagination safety limit exceeded.");
+  }
+  return all;
+}
+function idSet(rows, label) {
+  const ids=rows.map(x=>String(x?.record?.id ?? x?.id ?? "").trim());
+  if(ids.some(x=>!x)) throw new Error(label+" contains a Party with a missing ID.");
+  const set=new Set(ids);
+  if(set.size!==ids.length) throw new Error(label+" contains duplicate Party IDs.");
+  return set;
+}
+$("run").onclick=async()=>{
+  const btn=$("run"); btn.disabled=true;
+  setStats("—","—","—","—"); $("details").textContent="Comparison running…";
+  try {
+    const email=$("email").value.trim(), password=$("password").value;
+    const worker=normalizeUrl($("worker").value);
+    if(!worker.startsWith("https://")) throw new Error("Use the HTTPS TEST Worker URL.");
+    if(!email||!password) throw new Error("Enter the TEST Owner email and password.");
+    status("Signing in to the TEST Firebase project…");
+    const credential=await signInWithEmailAndPassword(auth,email,password);
+    $("password").value="";
+    if(!credential.user.emailVerified) throw new Error("TEST Owner email is not verified.");
+    const token=await credential.user.getIdToken(true);
+    status("Checking TEST Trial access and Business membership…");
+    const trial=await apiGet("/trial-access",token);
+    if(trial.accessGranted!==true) throw new Error("TEST Trial access is not active: "+(trial.trialStatus||trial.code||"blocked"));
+    const business=await apiGet("/business",token);
+    if(business.authenticated!==true || business.accessGranted!==true || business.businessStatus!=="active" || !business.business?.id)
+      throw new Error("An active TEST Business could not be confirmed.");
+    const businessId=String(business.business.id);
+    $("businessId").value=businessId;
+    status("Reading local Party IDs and fetching TEST Cloud Party pages (GET only)…");
+    const local=localPartiesReadOnly();
+    const cloudEnvelope=await fetchAllParties(token,businessId);
+    const cloud=cloudEnvelope.map(x=>x?.record).filter(x=>x&&typeof x==="object"&&!Array.isArray(x));
+    if(cloud.length!==cloudEnvelope.length) throw new Error("Cloud returned an invalid Party record.");
+    const localIds=idSet(local,"Local data"), cloudIds=idSet(cloud,"Cloud data");
+    const matched=[...localIds].filter(id=>cloudIds.has(id)).length;
+    const localOnly=[...localIds].filter(id=>!cloudIds.has(id)).length;
+    const cloudOnly=[...cloudIds].filter(id=>!localIds.has(id)).length;
+    setStats(local.length,cloud.length,matched,0);
+    $("details").textContent="Local-only IDs: "+localOnly+" · Cloud-only IDs: "+cloudOnly+" · Verified TEST Business: "+business.business.name+" · Role: "+business.business.role;
+    status("PASS — READ-ONLY Party comparison completed.\n\nBusiness: "+business.business.name+"\nBusiness ID: "+businessId+"\nLocal Parties: "+local.length+"\nCloud Parties: "+cloud.length+"\nMatching IDs: "+matched+"\nLocal-only IDs: "+localOnly+"\nCloud-only IDs: "+cloudOnly+"\nID conflicts: 0\n\nNo Cloud writes were sent. No Local Storage or IndexedDB values were changed.");
+  } catch(e) {
+    $("details").textContent="Comparison stopped. No write operation was attempted.";
+    status("STOPPED SAFELY\n"+(e?.message||String(e))+"\n\nThis page uses GET-only Cloud API calls and does not change Party records or local app data.");
+  } finally { btn.disabled=false; }
+};
+$("clear").onclick=async()=>{
+  try { await signOut(auth); } catch(e) {}
+  $("password").value=""; $("businessId").value="";
+  setStats("—","—","—","—");
+  $("details").textContent="Results cleared. No Party data changed.";
+  status("Signed out. Ready. No app data was changed.");
+};
+</script>
+</body>
+</html>
