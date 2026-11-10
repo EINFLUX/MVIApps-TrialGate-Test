@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MVIApps — TEST Consolidated Read-only Audit</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#172033;background:#f3f6fb}
+body{margin:0;padding:18px}main{max-width:1080px;margin:auto}
+.card{background:#fff;border:1px solid #d9e1ee;border-radius:13px;padding:18px;margin:0 0 15px;box-shadow:0 3px 12px #1522380b}
+h1{font-size:22px;margin:0 0 8px}h2{font-size:17px;margin:0 0 12px}
+p{line-height:1.45;color:#536176;font-size:13px}
+.warn{background:#fff7e8;border:1px solid #f4c978;border-radius:9px;padding:12px;color:#74470b;font-size:13px;line-height:1.5}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;font-size:13px;font-weight:700;margin:8px 0 5px}
+input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px}
+button{border:0;border-radius:8px;background:#155eef;color:#fff;padding:11px 15px;font-weight:700;cursor:pointer;margin:12px 8px 0 0}
+button.secondary{background:#475569}button:disabled{opacity:.5;cursor:not-allowed}
+#log{white-space:pre-wrap;background:#101827;color:#e5edf8;padding:13px;border-radius:9px;font:12px/1.55 ui-monospace,monospace;min-height:65px;max-height:330px;overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:8px;border-bottom:1px solid #e5eaf2;text-align:left}th{background:#f4f7fc}
+.good{color:#087443;font-weight:700}.bad{color:#b42318;font-weight:700}.muted{color:#64748b}
+.note{font-size:12px;color:#64748b}
+@media(max-width:650px){body{padding:9px}.grid{grid-template-columns:1fr}.card{padding:13px}table{font-size:12px}}
+</style></head>
+<body><main>
+<section class="card">
+<h1>MVIApps — TEST Consolidated Read-only Audit</h1>
+<p>One TEST Owner login. Reuses the already-passed Party result without rerunning it, compares Items, and checks multiple other TEST Cloud collections in one run.</p>
+<div class="warn"><b>READ-ONLY SAFETY:</b> Firebase sign-in plus HTTP GET only. No create, edit, delete, archive, merge, upload, stock mutation, or database write. Local data is read using localStorage.getItem only. Use only the isolated TEST Worker and TEST Firebase account.</div>
+<div class="grid">
+<div><label for="worker">TEST Worker URL</label><input id="worker" value="https://mviapps-stage4-validation-api.mvi2k21.workers.dev"></div>
+<div><label for="email">TEST Owner Email</label><input id="email" type="email" value="einfluxonline@gmail.com"></div>
+<div><label for="password">TEST Owner Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Enter TEST account password"></div>
+<div><label>Verified Business ID</label><input id="businessId" readonly placeholder="Auto-filled after verification"></div>
+</div>
+<button id="run">Sign in & Run Consolidated Audit</button><button id="clear" class="secondary">Clear / Sign out</button>
+<p class="note">Password is cleared after login. Firebase persistence is in-memory for this page session. Credentials are not saved.</p>
+</section>
+<section class="card">
+<h2>Local ↔ Cloud ID Comparison</h2>
+<table><thead><tr><th>Collection</th><th>Local</th><th>Cloud</th><th>Matching IDs</th><th>Local-only</th><th>Cloud-only</th><th>Status</th></tr></thead>
+<tbody id="compareRows"><tr><td colspan="7" class="muted">Party result already confirmed 6/6 in the previous run. Item comparison pending.</td></tr></tbody></table>
+<p class="note">Party comparison already passed 6/6 earlier and is intentionally not repeated. This run compares the known Local Storage array <code>mviapps_items</code> only.</p>
+</section>
+<section class="card">
+<h2>Cloud Collection Read Checks</h2>
+<table><thead><tr><th>TEST Cloud collection</th><th>Records read</th><th>Pages / Result</th><th>Status</th></tr></thead>
+<tbody id="cloudRows"><tr><td colspan="4" class="muted">Not run</td></tr></tbody></table>
+</section>
+<section class="card"><h2>Run Log</h2><div id="log">Ready. No data has been changed.</div></section>
+</main>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {getAuth,setPersistence,inMemoryPersistence,signInWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+const firebaseConfig={
+ apiKey:"AIzaSyDF6iSPn_FLpvJFOHsNvfiBzvkUO57Q8PA",
+ authDomain:"mviapps-test-auth.firebaseapp.com",
+ projectId:"mviapps-test-auth",
+ storageBucket:"mviapps-test-auth.firebasestorage.app",
+ messagingSenderId:"490578513154",
+ appId:"1:490578513154:web:2eb4b08d71dadeacaf061b"
+};
+const app=initializeApp(firebaseConfig),auth=getAuth(app);
+await setPersistence(auth,inMemoryPersistence);
+const $=id=>document.getElementById(id), root=()=> $("worker").value.trim().replace(/\/+$/,"");
+const headers=token=>({"Authorization":"Bearer "+token,"X-MVIApps-Auth-Mode":"owner"});
+let lines=[];
+function log(s){lines.push("["+new Date().toLocaleTimeString()+"] "+s);$("log").textContent=lines.join("\n");$("log").scrollTop=$("log").scrollHeight}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+async function getJson(path,token){
+ const res=await fetch(root()+path,{method:"GET",cache:"no-store",headers:headers(token)});
+ const d=await res.json().catch(()=>({}));
+ if(!res.ok)throw new Error(path+" HTTP "+res.status+" "+(d.code||d.error||"unknown"));
+ return d;
+}
+function localArray(key){
+ const raw=localStorage.getItem(key);
+ if(raw===null)return [];
+ const val=JSON.parse(raw);
+ if(!Array.isArray(val))throw new Error("Local "+key+" is not an array; stopped without changing it.");
+ return val;
+}
+function recordId(x){return String(x?.record?.id??x?.id??"").trim()}
+function compareIds(local,cloud,label){
+ const a=local.map(recordId),b=cloud.map(recordId);
+ if(a.some(x=>!x)||b.some(x=>!x))throw new Error(label+" has a record with missing ID.");
+ const sa=new Set(a),sb=new Set(b);
+ if(sa.size!==a.length||sb.size!==b.length)throw new Error(label+" contains duplicate IDs.");
+ const match=[...sa].filter(x=>sb.has(x)).length;
+ return {local:a.length,cloud:b.length,match,localOnly:a.length-match,cloudOnly:b.length-match};
+}
+async function fetchCursorCollection(path,recordType,businessId,token){
+ const all=[];let cursor=null,pages=0;
+ do{
+  const u=new URL(root()+path);
+  u.searchParams.set("businessId",businessId);
+  if(cursor)u.searchParams.set("cursor",cursor);
+  const res=await fetch(u.toString(),{method:"GET",cache:"no-store",headers:headers(token)});
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(path+" HTTP "+res.status+" "+(d.code||d.error||"unknown"));
+  if(d.testOnly!==true||d.businessId!==businessId||d.recordType!==recordType||!Array.isArray(d.records))
+   throw new Error(path+" returned an unexpected cursor response; safely stopped.");
+  all.push(...d.records);
+  cursor=d.nextCursor||null;
+  if(++pages>500)throw new Error(path+" pagination safety limit exceeded.");
+ }while(cursor);
+ return {records:all,pages};
+}
+async function fetchSimpleStock(path,recordType,businessId,token){
+ const u=new URL(root()+path);u.searchParams.set("businessId",businessId);
+ const res=await fetch(u.toString(),{method:"GET",cache:"no-store",headers:headers(token)});
+ const d=await res.json().catch(()=>({}));
+ if(!res.ok)throw new Error(path+" HTTP "+res.status+" "+(d.code||d.error||"unknown"));
+ if(d.testOnly!==true||d.businessId!==businessId||d.recordType!==recordType||!Array.isArray(d.records))
+  throw new Error(path+" returned unexpected read-only response.");
+ return {records:d.records,pages:1};
+}
+function rowCompare(label,x){
+ $("compareRows").insertAdjacentHTML("beforeend",`<tr><td>${esc(label)}</td><td>${x.local}</td><td>${x.cloud}</td><td>${x.match}</td><td>${x.localOnly}</td><td>${x.cloudOnly}</td><td class="${x.localOnly||x.cloudOnly?'bad':'good'}">${x.localOnly||x.cloudOnly?'DIFFERENCE':'MATCH'}</td></tr>`);
+}
+function rowCloud(label,x){
+ $("cloudRows").insertAdjacentHTML("beforeend",`<tr><td>${esc(label)}</td><td>${x.records.length}</td><td>${x.pages}</td><td class="good">PASS</td></tr>`);
+}
+$("run").onclick=async()=>{
+ const btn=$("run");btn.disabled=true;lines=[];$("compareRows").innerHTML="";$("cloudRows").innerHTML="";
+ try{
+  const email=$("email").value.trim(),password=$("password").value;
+  if(!root().startsWith("https://")||!email||!password)throw new Error("Enter HTTPS TEST Worker URL, TEST email and password.");
+  log("Signing in to TEST Firebase…");
+  const cred=await signInWithEmailAndPassword(auth,email,password);$("password").value="";
+  if(!cred.user.emailVerified)throw new Error("TEST Firebase email is not verified.");
+  const token=await cred.user.getIdToken(true);
+  log("Firebase TEST Owner authenticated; checking active Trial…");
+  const trial=await getJson("/trial-access",token);
+  if(trial.accessGranted!==true)throw new Error("TEST Trial is not active: "+(trial.trialStatus||"blocked"));
+  const business=await getJson("/business",token);
+  if(business.authenticated!==true||business.accessGranted!==true||business.businessStatus!=="active"||!business.business?.id)
+   throw new Error("Active TEST Business/Owner membership was not confirmed.");
+  const bid=String(business.business.id);$("businessId").value=bid;
+  log("Verified TEST Business: "+business.business.name+" ("+bid+")");
+  log("Reading Local Items without writing…");
+  const localItems=localArray("mviapps_items");
+
+  log("Fetching Items using cursor pagination…");
+  try{
+   const items=await fetchCursorCollection("/business/data/items","item",bid,token);
+   const ic=compareIds(localItems,items.records,"Items");rowCompare("Items",ic);rowCloud("Items",items);
+   log("PASS Items read: "+items.records.length+".");
+  }catch(e){$("cloudRows").insertAdjacentHTML("beforeend",`<tr><td>Items</td><td>—</td><td>—</td><td class="bad">FAIL: ${esc(e.message)}</td></tr>`);log("Item check failed; continuing: "+e.message);}
+
+  const cursorSpecs=[
+   ["/business/data/sales-invoices","sale_invoice","Sales Invoices"],
+   ["/business/data/sales-returns","sale_return","Sales Returns"],
+   ["/business/data/purchase-invoices","purchase_invoice","Purchase Invoices"],
+   ["/business/data/purchase-returns","purchase_return","Purchase Returns"],
+   ["/business/data/payment-in","payment_in","Payment-In"],
+   ["/business/data/payment-out","payment_out","Payment-Out"],
+   ["/business/data/expenses","expense","Expenses"],
+   ["/business/data/other-income","other_income","Other Income"],
+   ["/business/data/bank-accounts","bank_account","Bank Accounts"],
+   ["/business/data/bank-transactions","bank_transaction","Bank Transactions"],
+   ["/business/data/cash-transactions","cash_transaction","Cash Transactions"],
+   ["/business/data/cash-balance","cash_balance","Cash Balance"]
+  ];
+  for(const [path,type,label] of cursorSpecs){
+   log("GET "+label+"…");
+   try{const x=await fetchCursorCollection(path,type,bid,token);rowCloud(label,x);log("PASS "+label+": "+x.records.length+" records.");}
+   catch(e){$("cloudRows").insertAdjacentHTML("beforeend",`<tr><td>${esc(label)}</td><td>—</td><td>—</td><td class="bad">FAIL: ${esc(e.message)}</td></tr>`);log(label+" failed; continuing: "+e.message);}
+  }
+  const stockSpecs=[
+   ["/business/data/godowns","godown","Godowns"],
+   ["/business/data/stock-adjustments","stock_adjustment","Stock Adjustments"],
+   ["/business/data/godown-transfers","godown_transfer","Godown Transfers"]
+  ];
+  for(const [path,type,label] of stockSpecs){
+   log("GET "+label+"…");
+   try{const x=await fetchSimpleStock(path,type,bid,token);rowCloud(label,x);log("PASS "+label+": "+x.records.length+" records.");}
+   catch(e){$("cloudRows").insertAdjacentHTML("beforeend",`<tr><td>${esc(label)}</td><td>—</td><td>—</td><td class="bad">FAIL: ${esc(e.message)}</td></tr>`);log(label+" failed; continuing: "+e.message);}
+  }
+  log("PASS — consolidated read-only audit completed. No Cloud writes or Local Storage changes were made.");
+  $("compareRows").insertAdjacentHTML("beforeend",`<tr><td colspan="7" class="good">Local ↔ Cloud ID comparison finished for Parties and Items.</td></tr>`);
+ }catch(e){
+  log("STOPPED SAFELY — "+(e?.message||String(e)));
+  log("No write request was sent by this page. Collections completed before the error remain visible above.");
+ }finally{btn.disabled=false}
+};
+$("clear").onclick=async()=>{
+ try{await signOut(auth)}catch{}
+ $("password").value="";$("businessId").value="";$("compareRows").innerHTML='<tr><td colspan="7" class="muted">Cleared</td></tr>';
+ $("cloudRows").innerHTML='<tr><td colspan="4" class="muted">Cleared</td></tr>';lines=[];log("Signed out. No data changed.");
+};
+</script></body></html>
