@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MVIApps Stage 4 – Consolidated TEST</title>
+<style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#f4f6fa}*{box-sizing:border-box}body{margin:0;padding:22px}.wrap{max-width:980px;margin:auto}.card{background:#fff;border:1px solid #dce2ec;border-radius:12px;padding:18px;margin:0 0 16px;box-shadow:0 2px 8px #1720330a}h1{font-size:23px;margin:0 0 8px}h2{font-size:17px;margin:0 0 12px}.muted{color:#667085;font-size:13px;line-height:1.5}.warning{background:#fff7e8;border:1px solid #f4d49b;padding:12px;border-radius:8px;color:#704b00;font-size:13px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:block;font-size:13px;font-weight:600;margin:10px 0 5px}input{width:100%;padding:11px;border:1px solid #cbd3df;border-radius:7px;font-size:14px}button{border:0;border-radius:7px;padding:11px 16px;font-weight:700;cursor:pointer;background:#155eef;color:white;margin:12px 8px 0 0}button.secondary{background:#475467}button:disabled{opacity:.55;cursor:not-allowed}.status{font-weight:700;margin-left:8px}.ok{color:#067647}.bad{color:#b42318}.log{background:#101828;color:#e6edf7;padding:12px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;min-height:150px;font:12px/1.55 Consolas,monospace}.pill{display:inline-block;padding:4px 8px;border-radius:20px;background:#eef4ff;color:#1849a9;font-size:12px;margin:4px 4px 0 0}.hidden{display:none}@media(max-width:650px){body{padding:10px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body><div class="wrap">
+<div class="card">
+<h1>MVIApps Stage 4 – Consolidated TEST</h1>
+<p class="muted">Is page ka use sirf naye isolated TEST Worker aur TEST Firebase account ke saath karein. Ye page koi Production Worker ya Production Database call nahi karta.</p>
+<div class="warning"><b>TEST-only safety:</b> Worker URL neeche pehle se TEST validation Worker ka hai. Firebase TEST Web API Key aur Owner password sirf is page mein enter karein. Password ya ID token kahin display/save nahi hota. Test synthetic records banata hai aur safal cleanup par unhe soft-delete karke synthetic Item archive karta hai. Agar cleanup fail ho, page IDs aur exact error dikhayega. Koi existing item/party/godown edit nahi hota.</div>
+<div class="grid">
+<div><label>TEST Worker URL</label><input id="worker" value="https://mviapps-stage4-validation-api.mvi2k21.workers.dev"></div>
+<div><label>TEST Firebase Web API Key</label><input id="apiKey" type="password" autocomplete="off" placeholder="Firebase TEST project Web API Key"></div>
+<div><label>Owner Email</label><input id="email" value="einfluxonline@gmail.com" autocomplete="username"></div>
+<div><label>Owner Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Enter TEST account password"></div>
+</div>
+<button id="loginBtn">1. TEST Owner Login & Verify Business</button><button id="resendVerifyBtn" class="secondary" style="display:none">Resend Email Verification</button><button id="refreshVerifyBtn" class="secondary" style="display:none">I clicked the email link – Refresh Verification</button><span id="loginState" class="status muted">Not signed in</span>
+<div id="businessInfo" class="muted" style="margin-top:10px"></div>
+</div>
+<div class="card">
+<h2>Consolidated API Test</h2>
+<p class="muted">Login successful hone ke baad test run karein. Test existing Main Godown aur agar available ho to existing second Godown use karega. Naya Godown create nahi karega.</p>
+<button id="runBtn" disabled>2. Run One Consolidated TEST</button>
+<button id="logoutBtn" class="secondary" disabled>Sign out / Clear session</button>
+<div id="summary" class="muted" style="margin-top:10px"></div>
+</div>
+<div class="card"><h2>Test Log</h2><div id="log" class="log">Waiting for TEST Owner login…</div></div>
+</div>
+<script>
+(()=>{
+'use strict';
+const $=id=>document.getElementById(id);let idToken=null,businessId=null,ownerEmail=null,busy=false;
+const base=()=> $('worker').value.trim().replace(/\/+$/,'');
+function log(message,obj){const line=`[${new Date().toLocaleTimeString()}] ${message}`+(obj===undefined?'':'\n'+JSON.stringify(obj,null,2));$('log').textContent+=($('log').textContent?'\n\n':'')+line;$('log').scrollTop=$('log').scrollHeight;}
+function setState(el,text,good){$(el).textContent=text;$(el).className='status '+(good===true?'ok':good===false?'bad':'muted');}
+async function firebaseLogin(){const key=$('apiKey').value.trim(),email=$('email').value.trim(),password=$('password').value;if(!key||!email||!password)throw new Error('Firebase TEST Web API Key, Owner email aur password enter karein.');const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,returnSecureToken:true})});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error?.message||`Firebase login HTTP ${r.status}`);return data;}
+async function resendVerificationEmail(){const key=$('apiKey').value.trim();if(!key||!idToken)throw new Error('Pehle TEST Owner Login karein.');const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestType:'VERIFY_EMAIL',idToken})});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error?.message||`Verification email HTTP ${r.status}`);return data;}
+async function refreshEmailVerification(){const key=$('apiKey').value.trim();if(!key||!idToken)throw new Error('TEST Owner session nahi mila. Login dobara karein.');const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken})});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error?.message||`Verification status HTTP ${r.status}`);const user=data.users&&data.users[0];if(!user)throw new Error('Firebase user lookup response mein user nahi mila.');return user;}
+async function verifyWorkerBusiness(){const who=await api('/whoami');const whoData=assertResponse(who,200,'/whoami');if(String(whoData.email||'').toLowerCase()!==ownerEmail)throw new Error('Signed-in Firebase email mismatch.');log('Firebase Owner identity verified',{email:whoData.email,emailVerified:whoData.emailVerified});const b=await api('/business');const bd=assertResponse(b,200,'/business');if(!bd.business||bd.businessStatus!=='active')throw new Error('Active TEST Business membership not found: '+JSON.stringify(bd));businessId=bd.business.id;$('businessInfo').innerHTML=`<span class="pill">Owner: ${escapeHtml(ownerEmail)}</span><span class="pill">Business: ${escapeHtml(bd.business.name||'Active TEST Business')}</span><span class="pill">Business ID: ${escapeHtml(businessId)}</span>`;$('runBtn').disabled=false;$('logoutBtn').disabled=false;$('resendVerifyBtn').style.display='none';$('refreshVerifyBtn').style.display='none';setState('loginState','Signed in · TEST Business verified',true);log('Active TEST Business found',{businessName:bd.business.name,businessId,role:bd.business.role});}
+async function api(path,method='GET',body=null){const url=base()+path;const options={method,headers:{'Authorization':'Bearer '+idToken,'X-MVIApps-Auth-Mode':'owner'}};if(body){options.headers['Content-Type']='application/json';options.body=JSON.stringify(body);}const r=await fetch(url,options);const data=await r.json().catch(()=>({raw:'Non-JSON response'}));return {ok:r.ok,status:r.status,data};}
+function assertResponse(result,expected,label){if(result.status!==expected)throw new Error(`${label}: expected HTTP ${expected}, got ${result.status}: ${JSON.stringify(result.data)}`);return result.data;}
+function uid(prefix){return prefix+'-'+Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,8);}
+function mutation(){return 'mvi-stage4-'+crypto.randomUUID();}
+function dateDMY(){const d=new Date();return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;}
+async function getList(route){const r=await api(route+'?businessId='+encodeURIComponent(businessId)+'&limit=200');assertResponse(r,200,route+' GET');return r.data.records||[];}
+$('loginBtn').addEventListener('click',async()=>{if(busy)return;busy=true;$('loginBtn').disabled=true;$('log').textContent='';$('businessInfo').textContent='';$('runBtn').disabled=true;try{if(!/^https:\/\//i.test(base()))throw new Error('Worker URL HTTPS hona chahiye.');const health=await fetch(base()+'/');const h=await health.json();if(!health.ok||h.testOnly!==true||h.service!=='MVIApps Stage 4 Validation API')throw new Error('Worker TEST identity check failed: '+JSON.stringify(h));log('TEST Worker identity verified',h);const auth=await firebaseLogin();idToken=auth.idToken;ownerEmail=$('email').value.trim().toLowerCase();if(auth.emailVerified!==true){businessId=null;$('resendVerifyBtn').style.display='inline-block';$('refreshVerifyBtn').style.display='inline-block';$('logoutBtn').disabled=false;setState('loginState','Firebase sign-in successful · Email verification pending',false);log('FIREBASE EMAIL NOT VERIFIED',{email:auth.email,action:'Resend verification email, open inbox, click the Firebase verification link, then refresh verification status.'});return;}await verifyWorkerBusiness();}catch(e){idToken=null;businessId=null;$('resendVerifyBtn').style.display='none';$('refreshVerifyBtn').style.display='none';setState('loginState','Login / verification failed',false);log('LOGIN ERROR',String(e.message||e));}finally{busy=false;$('loginBtn').disabled=false;}});
+$('resendVerifyBtn').addEventListener('click',async()=>{if(busy)return;busy=true;$('resendVerifyBtn').disabled=true;try{await resendVerificationEmail();log('VERIFICATION EMAIL SENT',{email:ownerEmail||$('email').value.trim(),message:'Firebase accepted the verification email request. Inbox/Spam check karein.'});setState('loginState','Verification email sent · Inbox check karein',true);}catch(e){log('RESEND VERIFICATION ERROR',String(e.message||e));setState('loginState','Verification email send failed',false);}finally{busy=false;$('resendVerifyBtn').disabled=false;}});
+$('refreshVerifyBtn').addEventListener('click',async()=>{if(busy)return;busy=true;$('refreshVerifyBtn').disabled=true;try{const user=await refreshEmailVerification();if(user.emailVerified!==true){log('EMAIL STILL NOT VERIFIED',{email:user.email,emailVerified:user.emailVerified,message:'Inbox mein Firebase verification link open karke complete karein.'});setState('loginState','Email abhi verify nahi hua',false);return;}log('EMAIL VERIFICATION CONFIRMED',{email:user.email,emailVerified:true});await verifyWorkerBusiness();}catch(e){log('VERIFICATION REFRESH ERROR',String(e.message||e));setState('loginState','Verification refresh failed',false);}finally{busy=false;$('refreshVerifyBtn').disabled=false;}});
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+$('logoutBtn').addEventListener('click',()=>{idToken=null;businessId=null;ownerEmail=null;$('password').value='';$('apiKey').value='';$('businessInfo').textContent='';$('runBtn').disabled=true;$('logoutBtn').disabled=true;$('resendVerifyBtn').style.display='none';$('refreshVerifyBtn').style.display='none';setState('loginState','Signed out',null);log('Local session cleared.');});
+$('runBtn').addEventListener('click',async()=>{
+ if(busy||!idToken||!businessId)return;busy=true;$('runBtn').disabled=true;$('loginBtn').disabled=true;$('summary').textContent='Test running…';
+ const made={item:null,purchase:null,purchaseReturn:null,sale:null,salesReturn:null,adjustment:null,transfer:null};const cleanupErrors=[];const outcomes=[];let archiveDone=false;
+ const recordResult=(name,res,expected=200)=>{const ok=res.status===expected;outcomes.push({name,status:res.status,ok,code:res.data?.code||null});log(`${ok?'PASS':'CHECK'} ${name} · HTTP ${res.status}`,res.data);return res;};
+ async function createStock(route,record,label){const res=await api(route,'POST',{businessId,id:record.id,record,mutationId:mutation()});const expected=201;recordResult(label,res,expected);if(res.status!==expected)throw new Error(`${label} failed: ${JSON.stringify(res.data)}`);return record;}
+ async function deleteStock(route,record,label){if(!record)return;const res=await api(route,'DELETE',{businessId,id:record.id,mutationId:mutation()});recordResult('Cleanup '+label,res,200);if(res.status!==200)cleanupErrors.push({label,status:res.status,data:res.data});}
+ try{
+  const [items0,godowns0]=await Promise.all([getList('/business/data/items'),getList('/business/data/godowns')]);log('Read-only baseline loaded',{activeItems:items0.length,godowns:godowns0.map(x=>x.record?.name||x.name)});
+  const gods=godowns0.map(x=>x.record||x).filter(x=>x&&x.id);const main=gods.find(g=>String(g.name).trim().toLowerCase()==='main godown')||gods[0];if(!main)throw new Error('TEST Business mein active Godown nahi mila. Existing records ko change nahi kiya.');const secondary=gods.find(g=>g.id!==main.id);
+  const stamp=Date.now().toString(36).toUpperCase();const itemId=uid('ST4-ITEM');const item={id:itemId,name:'STAGE4 TEST ITEM '+stamp,code:'S4T'+stamp.slice(-8),category:'General',brand:'TEST ONLY',unit:'PCS',qty:0,rate:1,purchasePrice:1,salePrice:2};
+  made.item=await createStock('/business/data/items',item,'Create synthetic Item');
+  const date=dateDMY();
+  made.purchase=await createStock('/business/data/purchase-invoices',{id:uid('ST4-PUR'),date,invoiceNo:'ST4-PUR-'+stamp,items:[{itemId,qty:10,rate:1,amount:10}]},'Purchase Invoice +10');
+  made.purchaseReturn=await createStock('/business/data/purchase-returns',{id:uid('ST4-PR'),date,returnNo:'ST4-PR-'+stamp,items:[{itemId,qty:1,rate:1,amount:1}]},'Purchase Return -1');
+  if(secondary){made.transfer=await createStock('/business/data/godown-transfers',{id:uid('ST4-TR'),date,itemId,fromGodownId:main.id,toGodownId:secondary.id,qty:1,note:'MVIApps Stage 4 synthetic validation'},'Godown Transfer 1');}
+  else log('SKIP Godown Transfer: TEST Business has only one active Godown; no new Godown will be created.');
+  made.sale=await createStock('/business/data/sales-invoices',{id:uid('ST4-SALE'),date,invoiceNo:'ST4-SALE-'+stamp,items:[{itemId,qty:2,rate:2,amount:4,godownId:main.id}]},'Sales Invoice -2');
+  made.salesReturn=await createStock('/business/data/sales-returns',{id:uid('ST4-SR'),date,returnNo:'ST4-SR-'+stamp,items:[{itemId,qty:1,rate:2,amount:2,godownId:main.id}]},'Sales Return +1');
+  made.adjustment=await createStock('/business/data/stock-adjustments',{id:uid('ST4-ADJ'),date,itemId,godownId:main.id,adjustmentQty:2,adjustmentType:'increase',reason:'MVIApps Stage 4 synthetic validation'},'Stock Adjustment +2');
+  const [itemsAfter,adjustmentsAfter,transfersAfter]=await Promise.all([getList('/business/data/items'),getList('/business/data/stock-adjustments'),getList('/business/data/godown-transfers')]);const itemAfter=itemsAfter.map(x=>x.record||x).find(x=>x.id===itemId);if(!itemAfter)throw new Error('Created Item read-back missing.');log('Stock read-back verified',{itemId,qty:itemAfter.qty,stockVersion:itemAfter.stockVersion,adjustmentFound:adjustmentsAfter.some(x=>(x.record||x).id===made.adjustment.id),transferFound:made.transfer?transfersAfter.some(x=>(x.record||x).id===made.transfer.id):'skipped'});
+  const tooMuch={id:uid('ST4-OVERSELL'),date,invoiceNo:'ST4-OVERSELL-'+stamp,items:[{itemId,qty:99999,rate:1,amount:99999,godownId:main.id}]};const negative=await api('/business/data/sales-invoices','POST',{businessId,id:tooMuch.id,record:tooMuch,mutationId:mutation()});const negOk=negative.status===409&&negative.data?.code==='INSUFFICIENT_STOCK';const negOutcome=recordResult('Insufficient Stock guard (expected 409 INSUFFICIENT_STOCK)',negative,409);if(!negOk){negOutcome.data={...negative.data,_expectedCode:'INSUFFICIENT_STOCK'};const idx=outcomes.length-1;outcomes[idx].ok=false;throw new Error('Insufficient Stock guard did not return expected INSUFFICIENT_STOCK.');}
+  log('All synthetic write checks completed. Starting safe cleanup…');
+ }catch(e){log('TEST ERROR',String(e.message||e));}
+ // Delete active source records before deleting the purchase source; this keeps replay non-negative.
+ for(const [route,key,label] of [
+  ['/business/data/godown-transfers','transfer','Godown Transfer'],
+  ['/business/data/stock-adjustments','adjustment','Stock Adjustment'],
+  ['/business/data/sales-returns','salesReturn','Sales Return'],
+  ['/business/data/sales-invoices','sale','Sales Invoice'],
+  ['/business/data/purchase-returns','purchaseReturn','Purchase Return'],
+  ['/business/data/purchase-invoices','purchase','Purchase Invoice']
+ ]){try{await deleteStock(route,made[key],label);}catch(e){cleanupErrors.push({label,error:String(e.message||e)});log('Cleanup exception '+label,String(e.message||e));}}
+ if(made.item&&cleanupErrors.length===0){try{const status=await api('/business/data/items/archive-status?businessId='+encodeURIComponent(businessId)+'&id='+encodeURIComponent(made.item.id));recordResult('Synthetic Item archive eligibility',status,200);if(status.status===200&&status.data.canArchive){const ar=await api('/business/data/items/archive','POST',{businessId,id:made.item.id,mutationId:mutation()});recordResult('Archive synthetic Item',ar,200);archiveDone=ar.status===200&&ar.data.archived===true;}else cleanupErrors.push({label:'Item archive eligibility',data:status.data});}catch(e){cleanupErrors.push({label:'Item archive',error:String(e.message||e)});}}
+ else if(made.item&&cleanupErrors.length){log('Synthetic Item left unarchived because one or more cleanup operations failed. Do not delete it manually; use the IDs above and share this log.');}
+ const failed=outcomes.filter(x=>!x.ok);const passed=outcomes.filter(x=>x.ok).length;const total=outcomes.length;const overall=failed.length===0&&cleanupErrors.length===0&&archiveDone;
+ $('summary').innerHTML=`<b class="${overall?'ok':'bad'}">${overall?'TEST PASS':'TEST NEEDS REVIEW'}</b><br>Checks recorded: ${passed}/${total} expected HTTP outcomes · Cleanup issues: ${cleanupErrors.length} · Synthetic Item archived: ${archiveDone?'Yes':'No'}<br>${secondary?'Godown transfer included':'Godown transfer skipped (no second active Godown)'}`;
+ log('FINAL SUMMARY',{overall,passed,total,cleanupErrors,syntheticItemId:made.item?.id||null,archiveDone,expectedNote:'A deliberately excessive sale must return HTTP 409 INSUFFICIENT_STOCK and must not create a sale record.'});
+ busy=false;$('runBtn').disabled=false;$('loginBtn').disabled=false;
+ });
+})();
+</script></body></html>
