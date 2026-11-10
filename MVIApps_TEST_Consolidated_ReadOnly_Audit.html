@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MVIApps — TEST Consolidated Read-only Audit</title>
+<title>MVIApps — TEST Consolidated Read-only Audit (Response Fix)</title>
 <style>
 :root{font-family:Arial,sans-serif;color:#172033;background:#f3f6fb}
 body{margin:0;padding:18px}main{max-width:1080px;margin:auto}
@@ -23,8 +23,8 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:8px;borde
 </style></head>
 <body><main>
 <section class="card">
-<h1>MVIApps — TEST Consolidated Read-only Audit</h1>
-<p>One TEST Owner login. Reuses the already-passed Party result without rerunning it, compares Items, and checks multiple other TEST Cloud collections in one run.</p>
+<h1>MVIApps — TEST Consolidated Read-only Audit (Response Fix)</h1>
+<p>Response-format corrected: checks the deployed TEST Worker’s actual JSON contract. One TEST Owner login; no writes.</p>
 <div class="warn"><b>READ-ONLY SAFETY:</b> Firebase sign-in plus HTTP GET only. No create, edit, delete, archive, merge, upload, stock mutation, or database write. Local data is read using localStorage.getItem only. Use only the isolated TEST Worker and TEST Firebase account.</div>
 <div class="grid">
 <div><label for="worker">TEST Worker URL</label><input id="worker" value="https://mviapps-stage4-validation-api.mvi2k21.workers.dev"></div>
@@ -39,7 +39,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:8px;borde
 <h2>Local ↔ Cloud ID Comparison</h2>
 <table><thead><tr><th>Collection</th><th>Local</th><th>Cloud</th><th>Matching IDs</th><th>Local-only</th><th>Cloud-only</th><th>Status</th></tr></thead>
 <tbody id="compareRows"><tr><td colspan="7" class="muted">Party result already confirmed 6/6 in the previous run. Item comparison pending.</td></tr></tbody></table>
-<p class="note">Party comparison already passed 6/6 earlier and is intentionally not repeated. This run compares the known Local Storage array <code>mviapps_items</code> only.</p>
+<p class="note">Party comparison already passed 6/6 earlier and is intentionally not repeated. This run compares the known Local Storage array <code>mviapps_items</code> only. Party 6/6 result is retained; it is not rerun.</p>
 </section>
 <section class="card">
 <h2>Cloud Collection Read Checks</h2>
@@ -97,8 +97,9 @@ async function fetchCursorCollection(path,recordType,businessId,token){
   const res=await fetch(u.toString(),{method:"GET",cache:"no-store",headers:headers(token)});
   const d=await res.json().catch(()=>({}));
   if(!res.ok)throw new Error(path+" HTTP "+res.status+" "+(d.code||d.error||"unknown"));
-  if(d.testOnly!==true||d.businessId!==businessId||d.recordType!==recordType||!Array.isArray(d.records))
-   throw new Error(path+" returned an unexpected cursor response; safely stopped.");
+  if(d.businessId!==businessId||d.recordType!==recordType||!Array.isArray(d.records)||
+     !(d.nextCursor===null||typeof d.nextCursor==="string"))
+   throw new Error(path+" returned an unexpected cursor response; keys="+Object.keys(d).join(",")+"; safely stopped.");
   all.push(...d.records);
   cursor=d.nextCursor||null;
   if(++pages>500)throw new Error(path+" pagination safety limit exceeded.");
@@ -110,8 +111,9 @@ async function fetchSimpleStock(path,recordType,businessId,token){
  const res=await fetch(u.toString(),{method:"GET",cache:"no-store",headers:headers(token)});
  const d=await res.json().catch(()=>({}));
  if(!res.ok)throw new Error(path+" HTTP "+res.status+" "+(d.code||d.error||"unknown"));
- if(d.testOnly!==true||d.businessId!==businessId||d.recordType!==recordType||!Array.isArray(d.records))
-  throw new Error(path+" returned unexpected read-only response.");
+ if(d.businessId!==businessId||d.recordType!==recordType||!Array.isArray(d.records)||
+    !Number.isInteger(d.limit)||!Number.isInteger(d.offset)||d.count!==d.records.length)
+  throw new Error(path+" returned unexpected read-only response; keys="+Object.keys(d).join(",")+"; safely stopped.");
  return {records:d.records,pages:1};
 }
 function rowCompare(label,x){
